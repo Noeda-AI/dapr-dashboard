@@ -11,12 +11,13 @@ vi.mock('../lib/telemetry', () => ({ trackAction: vi.fn() }))
 const noop = () => {}
 
 describe('NAV_ITEMS', () => {
-  it('has exactly 9 items in the correct order', () => {
+  it('has exactly 10 items in the correct order', () => {
     const labels = NAV_ITEMS.map((i) => i.label)
     expect(labels).toEqual([
       'Applications',
       'Components',
       'Workflows',
+      'State',
       'Actors',
       'Subscriptions',
       'Resiliency',
@@ -32,6 +33,7 @@ describe('NAV_ITEMS', () => {
       '/',
       '/components',
       '/workflows',
+      '/state',
       '/actors',
       '/subscriptions',
       '/resiliency',

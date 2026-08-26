@@ -18,6 +18,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Applications', to: '/' },
   { label: 'Components', to: '/components' },
   { label: 'Workflows', to: '/workflows', cap: 'workflows' },
+  { label: 'State', to: '/state', cap: 'state' },
   { label: 'Actors', to: '/actors' },
   { label: 'Subscriptions', to: '/subscriptions' },
   { label: 'Resiliency', to: '/resiliency' },
