@@ -304,7 +304,7 @@ Expected: PASS, including the pre-existing `keys_test.go` / `conninfo_test.go` t
 
 - [ ] **Step 5: Extend the four-backend integration contract**
 
-In `pkg/statestore/store_integration_test.go`, append to `runStoreContract` (after the existing delete assertions), and add `"github.com/dapr/components-contrib/state"` plus `"time"` to its imports if absent:
+In `pkg/statestore/store_integration_test.go`, append to `runStoreContract` (after the existing delete assertions). **Add no imports** — the appended code uses only `statestore`, `require` and `context`, all already imported. (An earlier draft of this step said to add `state` and `time`; that would be an unused-import build failure.)
 
 ```go
 	// Records: metadata-preserving bulk read across every backend.
@@ -1494,7 +1494,9 @@ func TestListPaging(t *testing.T) {
 
 	t.Run("loop-fills a page thinned by the internal-key filter", func(t *testing.T) {
 		f := newFakeStore()
-		// Interleave so every key page is mostly internal keys.
+		// 10 app keys and 40 internal ones. Keys sort with the app keys first
+		// ("a-order-" < "dapr.internal."), so with a 5-key page limit the first
+		// two pages are needed to reach a 10-item page — the loop-fill path.
 		for i := 0; i < 10; i++ {
 			f.set(fmt.Sprintf("myapp||a-order-%02d", i), "v")
 			for j := 0; j < 4; j++ {
@@ -2212,7 +2214,13 @@ Add to `pkg/server/server_test.go`:
 func TestStateRouteGatedOnCapability(t *testing.T) {
 	// State off: the route must not exist at all — absent routes are the real
 	// boundary; the capability flag is only advisory UX for the SPA.
-	off := NewRouter(Options{Capabilities: &Capabilities{}})
+	off := NewRouter(Options{
+		DistFS:       fstest.MapFS{"index.html": {Data: []byte("shell")}},
+		Version:      version.Info{Version: "test"},
+		Apps:         newFakeApps(),
+		Backend:      newFakeBackend(fakeWF{}),
+		Capabilities: &Capabilities{},
+	})
 	w := httptest.NewRecorder()
 	off.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/state", nil))
 	require.Equal(t, http.StatusNotFound, w.Code)
@@ -2221,11 +2229,18 @@ func TestStateRouteGatedOnCapability(t *testing.T) {
 }
 ```
 
+> `DistFS`, `Version`, `Apps` and `Backend` are not optional padding: every other
+> `NewRouter` call in this file supplies them (`server_test.go:17`), because the
+> router builds the SPA handler eagerly. Copy that shape rather than passing a
+> bare `Options{}`.
+
 Add to `cmd/workflow_test.go`:
 
 ```go
 // recordingStore is a statestore.Store that also implements RecordReader.
-type recordingStore struct{ patternKeysStore }
+// patternKeysStore's methods are on a pointer receiver, so the embed must be a
+// pointer for the promoted methods to satisfy statestore.Store.
+type recordingStore struct{ *patternKeysStore }
 
 func (recordingStore) Records(context.Context, []string) ([]statestore.Record, error) {
 	return nil, nil
@@ -2235,7 +2250,7 @@ func TestBuildStoreEntryStateService(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("store implementing RecordReader yields a working state service", func(t *testing.T) {
-		e := buildStoreEntry(recordingStore{}, "default", http.DefaultClient, nil, nil)
+		e := buildStoreEntry(recordingStore{&patternKeysStore{}}, "default", http.DefaultClient, nil, nil)
 		require.NotNil(t, e.state)
 		_, err := e.state.AppIDs(ctx)
 		require.NoError(t, err)
@@ -2257,7 +2272,7 @@ func TestBuildStoreEntryStateService(t *testing.T) {
 }
 ```
 
-> Check `cmd/workflow_test.go:126` for `patternKeysStore`'s exact definition and embed it as shown. If its methods are on a pointer receiver, make `recordingStore` embed `*patternKeysStore` and construct it accordingly. Add `"github.com/diagridio/dev-dashboard/pkg/state"` and `"github.com/diagridio/dev-dashboard/pkg/statestore"` to the imports.
+> Add `"github.com/diagridio/dev-dashboard/pkg/state"` and `"github.com/diagridio/dev-dashboard/pkg/statestore"` to the imports if absent.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -2318,7 +2333,15 @@ And mount it next to the workflows mount:
 	}
 ```
 
-Fix any other `apiRouter(` call sites the compiler flags (`pkg/server/api_test.go` is the likely one) by passing `nil` for the new parameter unless the test is about state.
+`apiRouter` has **five test call sites** that all need the new parameter — pass `nil` for it at each, since none of them is about state:
+
+- `pkg/server/api_test.go:16`
+- `pkg/server/api_test.go:30`
+- `pkg/server/statestores_test.go:60`
+- `pkg/server/workflows_test.go:243`
+- `pkg/server/workflows_test.go:254`
+
+The new argument goes **after** `newFakeBackend(fakeWF{})` and before the `stores` argument, matching the signature. Verify with `grep -rn 'apiRouter(' pkg/server/` that none are missed.
 
 - [ ] **Step 5: Build the per-store state service**
 
