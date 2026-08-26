@@ -336,8 +336,14 @@ round-trip through `encodeURIComponent` without path-escaping games.
 | `ErrNoStore` | 503 | `{"error":"no state store detected"}` |
 | `ErrStoreUnreachable` | 503 | wrapped message with store name + connection |
 | `ErrNotBrowsable` | 503 | `{"error":"this state store cannot be browsed"}` |
-| invalid LIKE pattern | 400 | `{"error":"invalid search pattern: …"}` |
 | key not found (`/record`) | 404 | `{"error":"record not found"}` |
+
+There is deliberately **no 400 row for an invalid search pattern**. Because
+every piece of user text is backslash-escaped before interpolation (see *LIKE
+escaping*), the pattern handed to `KeysLike` is valid by construction — there is
+no input that can make contrib's pattern parser fail. A residual pattern error
+would mean a bug in our escaping, not bad input, so it correctly falls through
+to 500 rather than being reported to the user as their mistake.
 
 The 503 shapes match the existing workflow responses so the SPA's
 `String(error).includes('503')` banner extraction (`Workflows.tsx:341`) works
