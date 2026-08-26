@@ -1,9 +1,15 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useStateStores } from '../hooks/useWorkflows'
-import { useStateAppIds, useStateRecord, useStateRecords } from '../hooks/useStateRecords'
+import {
+  useDeleteStateRecords,
+  useStateAppIds,
+  useStateRecord,
+  useStateRecords,
+} from '../hooks/useStateRecords'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { DateTimeCell } from '../components/DateTimeCell'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { dedupeStores } from '../lib/dedupeStores'
 import { highlightJson } from '../lib/json-highlight'
 import type { StateStore } from '../types/workflow'
@@ -85,6 +91,10 @@ export function State() {
   // Full key of the expanded row, or null. One row at a time: the panel is
   // tall, and two open panels make the table unreadable.
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleteStatus, setDeleteStatus] = useState<{ ok: number; failed: number } | null>(null)
+  const { mutate: deleteRecords } = useDeleteStateRecords()
 
   function resetPaging() {
     setPage(undefined)
@@ -92,6 +102,9 @@ export function State() {
     setPageOffset(0)
     // The expanded row may not exist under the new filter/store/page.
     setExpandedKey(null)
+    // Selection is scoped to the visible page, and the selected keys may not
+    // exist under a new filter.
+    setSelected(new Set())
   }
 
   // Stores. The dropdown collapses entries that differ only by file path, since
@@ -172,6 +185,42 @@ export function State() {
     () => (isError ? [] : (data?.items ?? [])),
     [isError, data?.items],
   )
+
+  function toggleRow(key: string, e: React.MouseEvent | React.KeyboardEvent) {
+    e.stopPropagation() // never expand the row from the checkbox
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function toggleAll(e: React.MouseEvent | React.KeyboardEvent) {
+    e.stopPropagation()
+    if (selected.size === items.length && items.length > 0) setSelected(new Set())
+    else setSelected(new Set(items.map((r) => r.key)))
+  }
+
+  function onConfirmDelete() {
+    deleteRecords(
+      { keys: Array.from(selected), store: selectedStore ?? undefined },
+      {
+        onSuccess: (results) => {
+          setDeleteStatus({
+            ok: results.filter((r) => r.ok).length,
+            failed: results.filter((r) => !r.ok).length,
+          })
+          setSelected(new Set())
+          setConfirmOpen(false)
+        },
+        onError: () => setConfirmOpen(false),
+      },
+    )
+  }
+
+  const allSelected = selected.size === items.length && items.length > 0
+  const selectedKeys = Array.from(selected)
 
   if (noStores) {
     return (
@@ -266,6 +315,37 @@ export function State() {
         </div>
       )}
 
+      {deleteStatus && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '8px 12px',
+            borderRadius: 8,
+            border: '1px solid var(--line)',
+            background: 'var(--surface)',
+            color: deleteStatus.failed > 0 ? 'var(--fail-fg)' : 'var(--accent-bright)',
+            fontSize: 13,
+          }}
+        >
+          Deleted {deleteStatus.ok} record{deleteStatus.ok !== 1 ? 's' : ''}
+          {deleteStatus.failed > 0 ? `, ${deleteStatus.failed} failed` : ''}.{' '}
+          <button
+            onClick={() => setDeleteStatus(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'inherit',
+              fontSize: 'inherit',
+              textDecoration: 'underline',
+              padding: 0,
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div className="filters">
         <select
           className="select"
@@ -316,6 +396,22 @@ export function State() {
       </div>
 
       <div className="card">
+        {selected.size > 0 && !isError && (
+          <div className="selbar">
+            <span className="cnt">{selected.size} selected</span>
+            <span className="grow" />
+            <button
+              className="btn danger"
+              data-cy="bulk-delete"
+              onClick={() => {
+                setDeleteStatus(null)
+                setConfirmOpen(true)
+              }}
+            >
+              Delete…
+            </button>
+          </div>
+        )}
         <div className="tablewrap">
           {isLoading || (!noStores && selectedStore === null) ? (
             <p className="muted" style={{ padding: 20 }}>
@@ -333,6 +429,22 @@ export function State() {
             <table className="wf">
               <thead>
                 <tr>
+                  <th style={{ width: 34 }}>
+                    <span
+                      className={allSelected ? 'cbx on' : 'cbx'}
+                      role="checkbox"
+                      aria-checked={allSelected}
+                      aria-label="Select all"
+                      tabIndex={0}
+                      onClick={toggleAll}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          toggleAll(e)
+                        }
+                      }}
+                    />
+                  </th>
                   <th>Key</th>
                   <th>App</th>
                   <th>Value</th>
@@ -350,6 +462,22 @@ export function State() {
                         className={expanded ? 'sel' : undefined}
                         onClick={() => setExpandedKey(expanded ? null : rec.key)}
                       >
+                        <td>
+                          <span
+                            className={selected.has(rec.key) ? 'cbx on' : 'cbx'}
+                            role="checkbox"
+                            aria-checked={selected.has(rec.key)}
+                            aria-label={`Select ${rec.key}`}
+                            tabIndex={0}
+                            onClick={(e) => toggleRow(rec.key, e)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                toggleRow(rec.key, e)
+                              }
+                            }}
+                          />
+                        </td>
                         <td className="iid mono">
                           <span aria-hidden="true" style={{ marginRight: 6 }}>
                             {expanded ? '▾' : '▸'}
@@ -383,7 +511,7 @@ export function State() {
                       </tr>
                       {expanded && (
                         <tr>
-                          <td colSpan={6} style={{ background: 'var(--surface)' }}>
+                          <td colSpan={7} style={{ background: 'var(--surface)' }}>
                             <RecordPanel recordKey={rec.key} store={selectedStore ?? undefined} />
                           </td>
                         </tr>
@@ -412,6 +540,7 @@ export function State() {
                 setPageOffset(prev.offset)
                 setHistory((h) => h.slice(0, -1))
                 setExpandedKey(null)
+                setSelected(new Set())
               }}
             >
               ← Prev
@@ -424,6 +553,7 @@ export function State() {
                 setPageOffset((o) => o + items.length)
                 setPage(data.nextToken)
                 setExpandedKey(null)
+                setSelected(new Set())
               }}
             >
               Next →
@@ -436,6 +566,29 @@ export function State() {
         Tip — records are read only. Use “Show internal keys” to reveal workflow history and actor
         state.
       </p>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title={`Delete ${selected.size} record${selected.size !== 1 ? 's' : ''}?`}
+        confirmLabel="Delete"
+        confirmDataCy="confirm-delete-state"
+        onConfirm={onConfirmDelete}
+        onCancel={() => setConfirmOpen(false)}
+      >
+        <p className="muted">
+          These records will be removed from the state store immediately. This cannot be undone.
+        </p>
+        <ul className="mono" style={{ fontSize: 12, marginTop: 8 }}>
+          {selectedKeys.slice(0, 5).map((k) => (
+            <li key={k} style={{ wordBreak: 'break-all' }}>
+              {k}
+            </li>
+          ))}
+          {selectedKeys.length > 5 && (
+            <li className="muted">…and {selectedKeys.length - 5} more</li>
+          )}
+        </ul>
+      </ConfirmDialog>
     </div>
   )
 }

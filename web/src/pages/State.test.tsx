@@ -328,3 +328,114 @@ describe('State page row expansion', () => {
     await waitFor(() => expect(screen.queryByTestId('record-panel')).not.toBeInTheDocument())
   })
 })
+
+describe('State page deletion', () => {
+  beforeEach(() => window.localStorage.clear())
+
+  // ConfirmDialog marks its confirm button with data-cy, not data-testid, so
+  // the suite reaches it the same way the Workflows tests do.
+  const confirmButton = () =>
+    document.querySelector('[data-cy="confirm-delete-state"]') as HTMLElement
+
+  it('selects rows and posts the selected keys', async () => {
+    stubApi({ items: [ITEM, { ...ITEM, key: 'myapp||order-43', logicalKey: 'order-43' }] })
+    let body: unknown = null
+    server.use(
+      http.post('/api/state/delete', async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json([
+          { key: 'myapp||order-42', ok: true },
+          { key: 'myapp||order-43', ok: true },
+        ])
+      }),
+    )
+    renderAt()
+    await screen.findByText('order-42')
+
+    await userEvent.click(screen.getByLabelText('Select myapp||order-42'))
+    await userEvent.click(screen.getByLabelText('Select myapp||order-43'))
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /delete…/i }))
+    await waitFor(() => expect(confirmButton()).toBeInTheDocument())
+    await userEvent.click(confirmButton())
+
+    await waitFor(() => expect(body).toEqual({ keys: ['myapp||order-42', 'myapp||order-43'] }))
+    expect(await screen.findByText(/deleted 2 records/i)).toBeInTheDocument()
+  })
+
+  it('select-all toggles every row on the page', async () => {
+    stubApi({ items: [ITEM, { ...ITEM, key: 'myapp||order-43', logicalKey: 'order-43' }] })
+    renderAt()
+    await screen.findByText('order-42')
+    await userEvent.click(screen.getByLabelText('Select all'))
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('Select all'))
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument()
+  })
+
+  it('reports a partial failure', async () => {
+    stubApi({ items: [ITEM, { ...ITEM, key: 'myapp||order-43', logicalKey: 'order-43' }] })
+    server.use(
+      http.post('/api/state/delete', () =>
+        HttpResponse.json([
+          { key: 'myapp||order-42', ok: true },
+          { key: 'myapp||order-43', ok: false, error: 'boom' },
+        ]),
+      ),
+    )
+    renderAt()
+    await screen.findByText('order-42')
+    await userEvent.click(screen.getByLabelText('Select all'))
+    await userEvent.click(screen.getByRole('button', { name: /delete…/i }))
+    await waitFor(() => expect(confirmButton()).toBeInTheDocument())
+    await userEvent.click(confirmButton())
+    expect(await screen.findByText(/deleted 1 record, 1 failed/i)).toBeInTheDocument()
+  })
+
+  it('cancelling the dialog deletes nothing', async () => {
+    stubApi()
+    let called = false
+    server.use(
+      http.post('/api/state/delete', () => {
+        called = true
+        return HttpResponse.json([])
+      }),
+    )
+    renderAt()
+    await screen.findByText('order-42')
+    await userEvent.click(screen.getByLabelText('Select myapp||order-42'))
+    await userEvent.click(screen.getByRole('button', { name: /delete…/i }))
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(called).toBe(false)
+    expect(screen.getByText('1 selected')).toBeInTheDocument()
+  })
+
+  it('clicking a checkbox does not expand the row', async () => {
+    stubApi()
+    renderAt()
+    await screen.findByText('order-42')
+    await userEvent.click(screen.getByLabelText('Select myapp||order-42'))
+    expect(screen.queryByTestId('record-panel')).not.toBeInTheDocument()
+  })
+
+  it('clears the selection when the page changes', async () => {
+    server.use(
+      http.get('/api/statestores', () => HttpResponse.json(STORES)),
+      http.get('/api/state/appids', () => HttpResponse.json(['myapp'])),
+      http.get('/api/state', ({ request }) => {
+        const page = new URL(request.url).searchParams.get('page')
+        if (page === 'tok') {
+          return HttpResponse.json({ items: [{ ...ITEM, key: 'myapp||o99', logicalKey: 'o99' }] })
+        }
+        return HttpResponse.json({ items: [ITEM], nextToken: 'tok' })
+      }),
+    )
+    renderAt()
+    await screen.findByText('order-42')
+    await userEvent.click(screen.getByLabelText('Select myapp||order-42'))
+    await userEvent.click(screen.getByRole('button', { name: /next/i }))
+    await screen.findByText('o99')
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument()
+  })
+})
