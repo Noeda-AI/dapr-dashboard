@@ -147,6 +147,7 @@ func assembleOptions(ctx context.Context, deps serveDeps, dist fs.FS) (server.Op
 		Lifecycle:        deps.Lifecycle,
 		ContainerLogs:    deps.ContainerLogs,
 		Backend:          rc,
+		StateBackend:     rc,
 		Stores:           rc,
 		Resources:        resources.New(rc.Paths, deps.ExtraResources),
 		News:             newsSvc,

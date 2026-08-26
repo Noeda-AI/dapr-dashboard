@@ -30,8 +30,10 @@ type Options struct {
 	ContainerLogs func(ctx context.Context, containerID string) (<-chan string, error)
 	// Lifecycle starts/stops/restarts discovered apps; nil disables the
 	// POST /api/apps/{key}/{target}/{action} route.
-	Lifecycle    lifecycle.Manager
-	Backend      WorkflowBackend
+	Lifecycle lifecycle.Manager
+	Backend   WorkflowBackend
+	// StateBackend resolves the per-store state service for the State page.
+	StateBackend StateBackend
 	Stores       StoreRegistry
 	Resources    resources.Service
 	News         news.Service
@@ -64,6 +66,11 @@ type Capabilities struct {
 	ControlPlane bool `json:"controlPlane"`
 	Logs         bool `json:"logs"`
 	Workflows    bool `json:"workflows"`
+	// State gates the State page (state-store record browser). It needs a
+	// connected store, the same precondition as Workflows, but is a separate
+	// flag because a store with no workflow data still has state worth
+	// browsing.
+	State bool `json:"state"`
 	// Mode echoes the CLI --mode value ("" = complete scan) so the SPA can
 	// adapt static fallbacks (e.g. the Logs page's dapr_* targets) to the
 	// server's discovery filter.
@@ -72,7 +79,7 @@ type Capabilities struct {
 
 // FullCapabilities is the host-mode default: everything on.
 func FullCapabilities() Capabilities {
-	return Capabilities{Lifecycle: true, ControlPlane: true, Logs: true, Workflows: true}
+	return Capabilities{Lifecycle: true, ControlPlane: true, Logs: true, Workflows: true, State: true}
 }
 
 // NewRouter wires the API and the embedded SPA under the optional base path.
@@ -90,7 +97,7 @@ func NewRouter(opts Options) http.Handler {
 	}
 
 	mount := func(router chi.Router) {
-		router.Mount("/api", apiRouter(opts.Version, opts.Apps, opts.ContainerLogs, opts.Lifecycle, opts.Backend, opts.Stores, opts.Resources, opts.News, opts.ControlPlane, opts.UpdateCheck, caps))
+		router.Mount("/api", apiRouter(opts.Version, opts.Apps, opts.ContainerLogs, opts.Lifecycle, opts.Backend, opts.StateBackend, opts.Stores, opts.Resources, opts.News, opts.ControlPlane, opts.UpdateCheck, caps))
 		router.Handle("/*", SPAHandler(opts.DistFS, opts.BasePath, opts.TelemetryEnabled, opts.Version.Version, caps))
 	}
 

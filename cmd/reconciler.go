@@ -17,6 +17,7 @@ import (
 
 	"github.com/diagridio/dev-dashboard/pkg/discovery"
 	"github.com/diagridio/dev-dashboard/pkg/server"
+	"github.com/diagridio/dev-dashboard/pkg/state"
 	"github.com/diagridio/dev-dashboard/pkg/statestore"
 	"github.com/diagridio/dev-dashboard/pkg/workflow"
 )
@@ -24,6 +25,7 @@ import (
 // Compile-time interface assertions.
 var _ server.StoreRegistry = (*reconciler)(nil)
 var _ server.WorkflowBackend = (*reconciler)(nil)
+var _ server.StateBackend = (*reconciler)(nil)
 
 // connectTimeout bounds a single state-store connection attempt during reconcile.
 const connectTimeout = 15 * time.Second
@@ -472,29 +474,63 @@ func (rc *reconciler) sidecarEndpoints(includeAll bool) workflow.EndpointsFunc {
 	}
 }
 
-// baseServiceFor resolves the store-backed service exactly as ServiceFor
-// historically did. storeUp reports whether a store actually opened (false
-// for the degraded no-store entry and the unreachable service).
-func (rc *reconciler) baseServiceFor(id string) (svc workflow.Service, rem server.WorkflowRemover, storeUp, known bool) {
-	var comp statestore.Component
+// resolveComponent maps a registry entry id to the component to open. degraded
+// reports the no-store case (no active store elected); known is false for an
+// unrecognised id.
+func (rc *reconciler) resolveComponent(id string) (comp statestore.Component, degraded, known bool) {
 	if id == "" {
 		active := rc.activeComponent()
 		if active == nil {
-			return rc.degraded.svc, rc.degraded.rem, false, true
+			return statestore.Component{}, true, true
 		}
 		comp = *active
 	} else {
 		c, ok := rc.componentFor(id)
 		if !ok {
-			return nil, nil, false, false
+			return statestore.Component{}, false, false
 		}
 		comp = c
 	}
-
 	// Apply compose address translation (no-op for non-compose stores) so the
 	// pool key matches the pre-warmed translated entry and the dial uses the
 	// host-reachable address rather than the in-container service name.
-	comp = rc.translate(comp)
+	return rc.translate(comp), false, true
+}
+
+// StateFor satisfies server.StateBackend.
+//
+// Unlike ServiceFor there is no sidecar composition: Dapr's HTTP State API
+// cannot enumerate keys, so a store that will not open has no fallback and the
+// unreachable service is the final answer.
+func (rc *reconciler) StateFor(id string) (state.Service, bool) {
+	comp, degraded, known := rc.resolveComponent(id)
+	if !known {
+		return nil, false
+	}
+	if degraded {
+		return rc.degraded.state, true
+	}
+	// Derive from baseCtx so shutdown aborts an in-flight dial here too.
+	octx, cancel := context.WithTimeout(rc.baseCtx, connectTimeout)
+	defer cancel()
+	e, err := rc.pool.openOrGet(octx, comp)
+	if err != nil {
+		return state.NewUnreachable(comp.Name, statestore.ConnInfo(comp)), true
+	}
+	return e.state, true
+}
+
+// baseServiceFor resolves the store-backed service exactly as ServiceFor
+// historically did. storeUp reports whether a store actually opened (false
+// for the degraded no-store entry and the unreachable service).
+func (rc *reconciler) baseServiceFor(id string) (svc workflow.Service, rem server.WorkflowRemover, storeUp, known bool) {
+	comp, degraded, known := rc.resolveComponent(id)
+	if !known {
+		return nil, nil, false, false
+	}
+	if degraded {
+		return rc.degraded.svc, rc.degraded.rem, false, true
+	}
 
 	// Derive from baseCtx so shutdown aborts an in-flight dial here too.
 	octx, cancel := context.WithTimeout(rc.baseCtx, connectTimeout)
