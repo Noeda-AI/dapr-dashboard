@@ -9,28 +9,12 @@ import { ConfirmRemoveDialog } from '../components/ConfirmRemoveDialog'
 import { dedupeWorkflows } from '../lib/dedupeWorkflows'
 import { dedupeStores } from '../lib/dedupeStores'
 import { parseEnum } from '../lib/parseEnum'
-import { formatDateTimeParts } from '../lib/wallclock'
+import { DateTimeCell } from '../components/DateTimeCell'
 import type { StateStore, WorkflowStatus, WorkflowSummary } from '../types/workflow'
 
 const ALL_STATUSES: WorkflowStatus[] = ['Running', 'Completed', 'Failed', 'Terminated', 'Suspended']
 
 const STORE_KEY = 'devdash.workflowStore'
-
-/**
- * Render a timestamp as localized date and time in separate spans so they sit
- * on one line when there's room and stack (date first, time second) when the
- * column is narrow. Falls back to an em dash on missing/invalid input.
- */
-function DateTimeCell({ ts }: { ts?: string }) {
-  const parts = formatDateTimeParts(ts)
-  if (!parts) return <>—</>
-  return (
-    <>
-      <span className="dt-date">{parts.date}</span>{' '}
-      <span className="dt-time">{parts.time}</span>
-    </>
-  )
-}
 
 /** Compute a human-readable duration between two dates (or from createdAt to now if no end). */
 function formatDuration(createdAt?: string, endAt?: string): string {
