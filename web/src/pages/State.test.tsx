@@ -228,3 +228,103 @@ describe('State page', () => {
     await waitFor(() => expect(window.localStorage.getItem('devdash.stateStore')).toBe('s2'))
   })
 })
+
+describe('State page row expansion', () => {
+  beforeEach(() => window.localStorage.clear())
+
+  const RECORD = {
+    key: 'myapp||order-42',
+    appId: 'myapp',
+    logicalKey: 'order-42',
+    kind: 'app' as const,
+    value: '{"id":42,"total":19.99}',
+    encoding: 'text' as const,
+    size: 23,
+    truncated: false,
+    etag: '3',
+  }
+
+  it('fetches and shows the full value when a row is clicked', async () => {
+    stubApi()
+    let calls = 0
+    server.use(
+      http.get('/api/state/record', ({ request }) => {
+        calls++
+        expect(new URL(request.url).searchParams.get('key')).toBe('myapp||order-42')
+        return HttpResponse.json(RECORD)
+      }),
+    )
+    renderAt()
+    await userEvent.click(await screen.findByText('order-42'))
+    expect(await screen.findByTestId('record-panel')).toHaveTextContent('"total"')
+    // The full key, which the table abbreviates, is shown in the panel.
+    expect(screen.getByTestId('record-panel')).toHaveTextContent('myapp||order-42')
+    expect(calls).toBe(1)
+  })
+
+  it('does not fetch any value before a row is expanded', async () => {
+    stubApi()
+    let calls = 0
+    server.use(
+      http.get('/api/state/record', () => {
+        calls++
+        return HttpResponse.json(RECORD)
+      }),
+    )
+    renderAt()
+    await screen.findByText('order-42')
+    expect(calls).toBe(0)
+  })
+
+  it('collapses on a second click and expands only one row at a time', async () => {
+    stubApi({
+      items: [ITEM, { ...ITEM, key: 'myapp||order-43', logicalKey: 'order-43' }],
+    })
+    server.use(http.get('/api/state/record', () => HttpResponse.json(RECORD)))
+    renderAt()
+
+    await userEvent.click(await screen.findByText('order-42'))
+    expect(await screen.findByTestId('record-panel')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('order-43'))
+    await waitFor(() => expect(screen.getAllByTestId('record-panel')).toHaveLength(1))
+
+    await userEvent.click(screen.getByText('order-43'))
+    await waitFor(() => expect(screen.queryByTestId('record-panel')).not.toBeInTheDocument())
+  })
+
+  it('flags a truncated value', async () => {
+    stubApi()
+    server.use(
+      http.get('/api/state/record', () =>
+        HttpResponse.json({ ...RECORD, truncated: true, size: 5_000_000 }),
+      ),
+    )
+    renderAt()
+    await userEvent.click(await screen.findByText('order-42'))
+    expect(await screen.findByText(/truncated/i)).toBeInTheDocument()
+  })
+
+  it('reports a value that could not be loaded without breaking the table', async () => {
+    stubApi()
+    server.use(
+      http.get('/api/state/record', () =>
+        HttpResponse.json({ error: 'record not found' }, { status: 404 }),
+      ),
+    )
+    renderAt()
+    await userEvent.click(await screen.findByText('order-42'))
+    expect(await screen.findByText(/couldn't load this value/i)).toBeInTheDocument()
+    expect(screen.getByText('order-42')).toBeInTheDocument()
+  })
+
+  it('collapses the expanded row when a filter changes', async () => {
+    stubApi()
+    server.use(http.get('/api/state/record', () => HttpResponse.json(RECORD)))
+    renderAt()
+    await userEvent.click(await screen.findByText('order-42'))
+    expect(await screen.findByTestId('record-panel')).toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('Show internal keys'))
+    await waitFor(() => expect(screen.queryByTestId('record-panel')).not.toBeInTheDocument())
+  })
+})

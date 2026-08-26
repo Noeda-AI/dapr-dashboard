@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useStateStores } from '../hooks/useWorkflows'
-import { useStateAppIds, useStateRecords } from '../hooks/useStateRecords'
+import { useStateAppIds, useStateRecord, useStateRecords } from '../hooks/useStateRecords'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { DateTimeCell } from '../components/DateTimeCell'
 import { dedupeStores } from '../lib/dedupeStores'
+import { highlightJson } from '../lib/json-highlight'
 import type { StateStore } from '../types/workflow'
 import type { StateItem } from '../types/state'
 
@@ -16,6 +17,52 @@ function formatSize(bytes: number): string {
   const kb = bytes / 1024
   if (kb < 1024) return `${kb.toFixed(1)} KB`
   return `${(kb / 1024).toFixed(1)} MB`
+}
+
+/**
+ * The expanded row's body: the full value plus the metadata the table
+ * abbreviates. The value is fetched only while this is mounted.
+ */
+function RecordPanel({ recordKey, store }: { recordKey: string; store?: string }) {
+  const { data, isLoading, isError } = useStateRecord(recordKey, store)
+
+  if (isLoading) {
+    return (
+      <p className="muted" style={{ padding: 12 }}>
+        Loading…
+      </p>
+    )
+  }
+  if (isError || !data) {
+    return (
+      <p className="muted" style={{ padding: 12 }}>
+        Couldn't load this value.
+      </p>
+    )
+  }
+  return (
+    <div data-testid="record-panel" style={{ padding: 12 }}>
+      <div className="muted mono" style={{ marginBottom: 8, wordBreak: 'break-all' }}>
+        {data.key}
+      </div>
+      <pre className="json" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        {highlightJson(data.value)}
+      </pre>
+      <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+        {formatSize(data.size)} · version {data.etag || '—'} · {data.encoding}
+        {data.contentType ? ` · ${data.contentType}` : ''}
+        {data.truncated ? ' · truncated at 1 MB' : ''}
+      </div>
+      <button
+        type="button"
+        className="btn ghost"
+        style={{ marginTop: 8 }}
+        onClick={() => void navigator.clipboard?.writeText(data.value)}
+      >
+        Copy value
+      </button>
+    </div>
+  )
 }
 
 export function State() {
@@ -35,11 +82,16 @@ export function State() {
   // (token, offset) of each page we leave. Empty = on the first page.
   const [history, setHistory] = useState<{ token: string | undefined; offset: number }[]>([])
   const [pageOffset, setPageOffset] = useState(0)
+  // Full key of the expanded row, or null. One row at a time: the panel is
+  // tall, and two open panels make the table unreadable.
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
 
   function resetPaging() {
     setPage(undefined)
     setHistory([])
     setPageOffset(0)
+    // The expanded row may not exist under the new filter/store/page.
+    setExpandedKey(null)
   }
 
   // Stores. The dropdown collapses entries that differ only by file path, since
@@ -290,37 +342,55 @@ export function State() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((rec) => (
-                  <tr key={rec.key}>
-                    <td className="iid mono">
-                      {rec.logicalKey}
-                      {rec.kind !== 'app' && (
-                        <span className="typechip" style={{ marginLeft: 6 }}>
-                          {rec.kind}
-                        </span>
+                {items.map((rec) => {
+                  const expanded = expandedKey === rec.key
+                  return (
+                    <Fragment key={rec.key}>
+                      <tr
+                        className={expanded ? 'sel' : undefined}
+                        onClick={() => setExpandedKey(expanded ? null : rec.key)}
+                      >
+                        <td className="iid mono">
+                          <span aria-hidden="true" style={{ marginRight: 6 }}>
+                            {expanded ? '▾' : '▸'}
+                          </span>
+                          {rec.logicalKey}
+                          {rec.kind !== 'app' && (
+                            <span className="typechip" style={{ marginLeft: 6 }}>
+                              {rec.kind}
+                            </span>
+                          )}
+                        </td>
+                        <td>{rec.appId || '—'}</td>
+                        <td className="mono">
+                          {rec.preview}
+                          {rec.encoding === 'base64' && (
+                            <span className="typechip" style={{ marginLeft: 6 }}>
+                              base64
+                            </span>
+                          )}
+                        </td>
+                        <td className="mono tabnum">{formatSize(rec.size)}</td>
+                        <td
+                          className="mono tabnum"
+                          title="Backend revision counter (etag) — it changes on every write, but is not a timestamp"
+                        >
+                          {rec.etag || '—'}
+                        </td>
+                        <td className="muted mono tabnum dt">
+                          <DateTimeCell ts={rec.ttlExpiresAt} />
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr>
+                          <td colSpan={6} style={{ background: 'var(--surface)' }}>
+                            <RecordPanel recordKey={rec.key} store={selectedStore ?? undefined} />
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td>{rec.appId || '—'}</td>
-                    <td className="mono">
-                      {rec.preview}
-                      {rec.encoding === 'base64' && (
-                        <span className="typechip" style={{ marginLeft: 6 }}>
-                          base64
-                        </span>
-                      )}
-                    </td>
-                    <td className="mono tabnum">{formatSize(rec.size)}</td>
-                    <td
-                      className="mono tabnum"
-                      title="Backend revision counter (etag) — it changes on every write, but is not a timestamp"
-                    >
-                      {rec.etag || '—'}
-                    </td>
-                    <td className="muted mono tabnum dt">
-                      <DateTimeCell ts={rec.ttlExpiresAt} />
-                    </td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  )
+                })}
               </tbody>
             </table>
           )}
@@ -341,6 +411,7 @@ export function State() {
                 setPage(prev.token)
                 setPageOffset(prev.offset)
                 setHistory((h) => h.slice(0, -1))
+                setExpandedKey(null)
               }}
             >
               ← Prev
@@ -352,6 +423,7 @@ export function State() {
                 setHistory((h) => [...h, { token: page, offset: pageOffset }])
                 setPageOffset((o) => o + items.length)
                 setPage(data.nextToken)
+                setExpandedKey(null)
               }}
             >
               Next →
