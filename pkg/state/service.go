@@ -114,16 +114,135 @@ func (u unreachable) Delete(_ context.Context, keys []string) []DeleteResult {
 	return out
 }
 
+// List returns one page of records.
+//
+// The ordering matters. Keys are paged and classified first, so a store that
+// is 99% workflow history costs only key bytes to skip; the single bulk value
+// read happens last, for the rows actually returned. (Contrast workflow.List,
+// which must load each instance in order to filter it.)
+//
+// Loop-fill is needed even though the app filter and key search are pushed
+// into the pattern, because excluding runtime-internal keys cannot be: KeysLike
+// takes a single positive pattern with no negation. As in workflow.List,
+// NextToken always points past the last fully-scanned key page, so a page
+// capped by the scan guard may hold fewer than PageSize items — possibly zero —
+// alongside a non-empty token; clients must treat that as "keep paging".
+// Accumulated matches are never truncated: NextToken has already advanced past
+// them, so dropping them would remove them from pagination entirely.
 func (s *service) List(ctx context.Context, q ListQuery) (ListResult, error) {
 	if err := s.ready(); err != nil {
 		return ListResult{}, err
 	}
-	return ListResult{}, nil
+	pageSize := q.PageSize
+	if pageSize <= 0 {
+		pageSize = defaultPageSize
+	}
+	pattern := listPattern(q.AppID, q.Search)
+
+	maxScan := pageSize * filteredScanPageMultiple
+	if maxScan > maxFilteredScanKeys {
+		maxScan = maxFilteredScanKeys
+	}
+
+	var matched []string
+	parts := make(map[string]keyParts, pageSize)
+	token := q.PageToken
+	next := ""
+	scanned := 0
+	for {
+		keys, n, err := s.store.Keys(ctx, pattern, token, pageSize)
+		if err != nil {
+			return ListResult{}, err
+		}
+		next = n
+		scanned += len(keys)
+		for _, k := range keys {
+			p := classify(k)
+			if !q.IncludeInternal && p.Kind != KindApp {
+				continue
+			}
+			if _, dup := parts[k]; dup {
+				continue
+			}
+			parts[k] = p
+			matched = append(matched, k)
+		}
+		// Unfiltered: preserve one-key-page-per-call semantics. Filtered: stop
+		// once the page is full, the keys ran out, or the scan cap is reached.
+		if q.IncludeInternal || len(matched) >= pageSize || next == "" || scanned >= maxScan {
+			break
+		}
+		token = next
+	}
+
+	recs, err := s.reader.Records(ctx, matched)
+	if err != nil {
+		return ListResult{}, err
+	}
+	byKey := make(map[string]statestore.Record, len(recs))
+	for _, r := range recs {
+		byKey[r.Key] = r
+	}
+
+	items := make([]Item, 0, len(matched))
+	for _, k := range matched {
+		r, ok := byKey[k]
+		if !ok {
+			continue // deleted between the key scan and the value read
+		}
+		items = append(items, newItem(parts[k], r))
+	}
+	// Keys ordering is not guaranteed across backends; sort so page boundaries
+	// and the rendered order are stable.
+	sort.Slice(items, func(a, b int) bool { return items[a].Key < items[b].Key })
+	return ListResult{Items: items, NextToken: next}, nil
 }
 
+// newItem builds a list row from a classified key and its record.
+func newItem(p keyParts, r statestore.Record) Item {
+	rendered, enc := renderValue(r.Value)
+	return Item{
+		Key:          r.Key,
+		AppID:        p.AppID,
+		LogicalKey:   p.LogicalKey,
+		Kind:         p.Kind,
+		Preview:      preview(rendered),
+		Encoding:     enc,
+		Size:         len(r.Value),
+		ETag:         r.ETag,
+		TTLExpiresAt: r.TTLExpire,
+		ContentType:  r.ContentType,
+	}
+}
+
+// Record returns one record's full value, capped at maxValueBytes. It reads by
+// exact key, so a runtime-internal key the list filter hides is still readable.
 func (s *service) Record(ctx context.Context, key string) (Record, error) {
 	if err := s.ready(); err != nil {
 		return Record{}, err
 	}
-	return Record{}, ErrNotFound
+	recs, err := s.reader.Records(ctx, []string{key})
+	if err != nil {
+		return Record{}, err
+	}
+	if len(recs) == 0 {
+		return Record{}, ErrNotFound
+	}
+	r := recs[0]
+	p := classify(r.Key)
+	rendered, enc := renderValue(r.Value)
+	value, cut := truncateValue(rendered)
+	return Record{
+		Key:          r.Key,
+		AppID:        p.AppID,
+		LogicalKey:   p.LogicalKey,
+		Kind:         p.Kind,
+		Value:        value,
+		Encoding:     enc,
+		Size:         len(r.Value),
+		Truncated:    cut,
+		ETag:         r.ETag,
+		TTLExpiresAt: r.TTLExpire,
+		ContentType:  r.ContentType,
+	}, nil
 }
