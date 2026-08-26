@@ -230,6 +230,17 @@ Developers use the dashboard to observe and debug Dapr apps while building local
   and a continuously-ticking wall-clock while it runs.
 - **Clean up workflows** — terminate and/or purge individual or bulk workflows, with an
   explicit "force delete" fallback for stuck/orphaned state.
+- **Browse & clean state records** — the **State** page lists the records in any connected
+  state store: key, value preview, version (etag), and TTL, paginated over the backend's own
+  key cursor, with row expansion for the full value and multi-select deletion. Read only —
+  records cannot be edited from the dashboard. Two limitations worth knowing:
+  **workflow history and actor state are hidden by default** (they live in the same keyspace
+  as your app's records — use *Show internal keys* to reveal them), and **there is no
+  "last modified" column** — Dapr's state components do not expose a modification timestamp,
+  so none can be shown. The Version column is the backend's etag: it changes on every write,
+  but it is not a time. Stores that cannot be opened directly — an in-memory store inside a
+  Testcontainers app, for example — cannot be browsed at all: Dapr's state API has no way to
+  enumerate keys, so there is nothing to page over.
 - **Review actors & subscriptions** — global pages aggregating active actor types and pub/sub
   subscriptions across all apps, each linkable back to the owning application.
 - **Read components & configurations** — read-only YAML viewers, enriched with which apps
@@ -521,6 +532,7 @@ sidecars and state store.
 │  pkg/server      chi router + go:embed SPA                    │
 │  pkg/discovery   standalone.List() + /v1.0/metadata           │
 │  pkg/workflow    list / history / purge                       │
+│  pkg/state       state record listing / delete                │
 │  pkg/statestore  client (redis / postgres / sqlite)           │
 │  pkg/controlplane docker/podman inspect + lifecycle           │
 │  pkg/metadata    component metadata catalog                   │

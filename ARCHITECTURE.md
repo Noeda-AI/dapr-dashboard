@@ -399,6 +399,22 @@ cached per address in a `SidecarPool` closed on shutdown.
 `decode.go`. **To add a store backend:** add a case in `statestore.New` and satisfy the
 components-contrib `state.Store` (+ `KeysLiker`) interface.
 
+### State records (`pkg/state`)
+
+`pkg/state` reads and deletes state-store records for the State page. It pages keys through
+`statestore.Store.Keys`, classifies each key (app / workflow / actor) on key text alone, then
+does **one bulk value read per page** via `statestore.RecordReader` — a metadata-preserving
+companion to `Get`/`BulkGet` that keeps the etag and TTL expiry those two discard. Search and
+the app filter are pushed into the `KeysLike` pattern with backslash escaping, so a literal
+`_` does not act as a wildcard.
+
+Unlike `pkg/workflow` there is **no sidecar fallback**: Dapr's HTTP State API cannot
+enumerate keys, so a store that will not open (or a backend that does not implement
+`RecordReader`) yields a service reporting `ErrNoStore` / `ErrNotBrowsable` rather than a
+degraded read path. The optional-interface assertion happens in exactly one place,
+`cmd/workflow.go:buildStoreEntry`; the reconciler's `StateFor` resolves the per-store service
+for `/api/state`.
+
 ### Control plane (`pkg/controlplane`)
 
 `New(src Sources)` resolves a container runtime — `DASH_CONTAINER_RUNTIME` override, else
