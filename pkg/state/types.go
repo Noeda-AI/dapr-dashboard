@@ -114,6 +114,9 @@ type DeleteResult struct {
 type Service interface {
 	List(ctx context.Context, q ListQuery) (ListResult, error)
 	Record(ctx context.Context, key string) (Record, error)
-	AppIDs(ctx context.Context) ([]string, error)
+	// AppIDs lists the selectable key prefixes. includeInternal must match the
+	// caller's list filter so the dropdown never offers a prefix whose every
+	// record that filter hides.
+	AppIDs(ctx context.Context, includeInternal bool) ([]string, error)
 	Delete(ctx context.Context, keys []string) []DeleteResult
 }

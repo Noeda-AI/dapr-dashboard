@@ -76,7 +76,9 @@ func stateRouter(backend StateBackend) http.Handler {
 		if !ok {
 			return
 		}
-		ids, err := svc.AppIDs(req.Context())
+		// Same spelling as the list route: only the literal "true" opts in.
+		includeInternal := req.URL.Query().Get("includeInternal") == "true"
+		ids, err := svc.AppIDs(req.Context(), includeInternal)
 		if err != nil {
 			writeStateErr(w, err)
 			return

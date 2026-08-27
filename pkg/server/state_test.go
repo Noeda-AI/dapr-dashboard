@@ -27,6 +27,8 @@ type stubStateService struct {
 	appIDs      []string
 	appIDsErr   error
 	deletes     []state.DeleteResult
+
+	lastAppIDsInternal bool
 }
 
 func (s *stubStateService) List(_ context.Context, q state.ListQuery) (state.ListResult, error) {
@@ -37,7 +39,8 @@ func (s *stubStateService) Record(_ context.Context, key string) (state.Record, 
 	s.lastKey = key
 	return s.record, s.recordErr
 }
-func (s *stubStateService) AppIDs(context.Context) ([]string, error) {
+func (s *stubStateService) AppIDs(_ context.Context, includeInternal bool) ([]string, error) {
+	s.lastAppIDsInternal = includeInternal
 	return s.appIDs, s.appIDsErr
 }
 func (s *stubStateService) Delete(_ context.Context, keys []string) []state.DeleteResult {
@@ -172,6 +175,31 @@ func TestStateAppIDsNeverReturnsNullJSON(t *testing.T) {
 	w := doState(t, stubStateBackend{svc: svc}, http.MethodGet, "/appids", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.JSONEq(t, `[]`, w.Body.String())
+}
+
+// The dropdown must offer only prefixes that have visible records under the
+// current filter, so /appids honours includeInternal exactly as / does.
+func TestStateAppIDsForwardsIncludeInternal(t *testing.T) {
+	t.Run("absent means app keys only", func(t *testing.T) {
+		svc := &stubStateService{appIDs: []string{"alpha"}}
+		w := doState(t, stubStateBackend{svc: svc}, http.MethodGet, "/appids", "")
+		require.Equal(t, http.StatusOK, w.Code)
+		require.False(t, svc.lastAppIDsInternal)
+	})
+
+	t.Run("includeInternal=true widens the list", func(t *testing.T) {
+		svc := &stubStateService{appIDs: []string{"alpha", "gamma"}}
+		w := doState(t, stubStateBackend{svc: svc}, http.MethodGet, "/appids?includeInternal=true", "")
+		require.Equal(t, http.StatusOK, w.Code)
+		require.True(t, svc.lastAppIDsInternal)
+	})
+
+	t.Run("any other value stays false", func(t *testing.T) {
+		svc := &stubStateService{appIDs: []string{"alpha"}}
+		w := doState(t, stubStateBackend{svc: svc}, http.MethodGet, "/appids?includeInternal=1", "")
+		require.Equal(t, http.StatusOK, w.Code)
+		require.False(t, svc.lastAppIDsInternal, "only the literal \"true\" enables it, as / does")
+	})
 }
 
 func TestStateDelete(t *testing.T) {

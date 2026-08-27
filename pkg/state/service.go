@@ -34,13 +34,19 @@ func (s *service) ready() error {
 
 // AppIDs returns the sorted distinct key prefixes in the store.
 //
-// It reads keys only — no values — and is deliberately filter-independent:
-// it ignores Search, AppID and IncludeInternal, so selecting an app never
-// collapses the dropdown to that one app, and toggling internal keys never
-// changes the available prefixes (app and workflow keys share a prefix).
+// It reads keys only — no values. It ignores Search and AppID, so selecting an
+// app never collapses the dropdown to that one app, but it does honour
+// includeInternal: a prefix earns its place only if at least one of its keys
+// survives that filter. Without this, a store full of finished workflow apps
+// offers a dropdown of prefixes that every yield an empty table, since
+// workflow history and actor state are hidden by default.
+//
+// A prefix that has both plain records and workflow/actor keys therefore stays
+// listed either way — the filter is per key, not per prefix.
+//
 // Unprefixed keys contribute nothing; those records are still listed and
 // reachable under "All apps".
-func (s *service) AppIDs(ctx context.Context) ([]string, error) {
+func (s *service) AppIDs(ctx context.Context, includeInternal bool) ([]string, error) {
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
@@ -53,6 +59,9 @@ func (s *service) AppIDs(ctx context.Context) ([]string, error) {
 	for _, k := range keys {
 		p := classify(k)
 		if p.AppID == "" {
+			continue
+		}
+		if !includeInternal && p.Kind != KindApp {
 			continue
 		}
 		if _, dup := seen[p.AppID]; dup {
@@ -105,7 +114,7 @@ func (u unreachable) List(context.Context, ListQuery) (ListResult, error) {
 	return ListResult{}, u.err()
 }
 func (u unreachable) Record(context.Context, string) (Record, error) { return Record{}, u.err() }
-func (u unreachable) AppIDs(context.Context) ([]string, error)       { return nil, u.err() }
+func (u unreachable) AppIDs(context.Context, bool) ([]string, error) { return nil, u.err() }
 func (u unreachable) Delete(_ context.Context, keys []string) []DeleteResult {
 	out := make([]DeleteResult, 0, len(keys))
 	for _, k := range keys {

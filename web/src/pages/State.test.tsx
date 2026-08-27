@@ -148,6 +148,37 @@ describe('State page', () => {
     await waitFor(() => expect(seen).toContain('includeInternal=true'))
   })
 
+  // A store full of finished workflow apps must not offer a dropdown of
+  // prefixes that all yield an empty table.
+  it('scopes the app dropdown to the internal-keys toggle', async () => {
+    const seen: string[] = []
+    server.use(
+      http.get('/api/statestores', () => HttpResponse.json(STORES)),
+      http.get('/api/state', () => HttpResponse.json({ items: [ITEM] })),
+      http.get('/api/state/appids', ({ request }) => {
+        const url = new URL(request.url)
+        seen.push(url.search)
+        return HttpResponse.json(
+          url.searchParams.get('includeInternal') === 'true'
+            ? ['myapp', 'workflow-only-app']
+            : ['myapp'],
+        )
+      }),
+    )
+    renderAt()
+    await screen.findByText('order-42')
+
+    const appSelect = await screen.findByTestId('app-select')
+    await waitFor(() => expect(within(appSelect).getAllByRole('option')).toHaveLength(2))
+    expect(within(appSelect).queryByRole('option', { name: 'workflow-only-app' })).toBeNull()
+
+    await userEvent.click(screen.getByLabelText('Show internal keys'))
+    await waitFor(() =>
+      expect(within(appSelect).queryByRole('option', { name: 'workflow-only-app' })).not.toBeNull(),
+    )
+    expect(seen.some((s) => s.includes('includeInternal=true'))).toBe(true)
+  })
+
   it('marks a non-app record with its kind', async () => {
     stubApi({
       items: [

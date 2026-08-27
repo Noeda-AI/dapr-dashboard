@@ -155,21 +155,21 @@ func TestBuildStoreEntryStateService(t *testing.T) {
 	t.Run("store implementing RecordReader yields a working state service", func(t *testing.T) {
 		e := buildStoreEntry(recordingStore{&patternKeysStore{}}, "default", http.DefaultClient, nil, nil)
 		require.NotNil(t, e.state)
-		_, err := e.state.AppIDs(ctx)
+		_, err := e.state.AppIDs(ctx, false)
 		require.NoError(t, err)
 	})
 
 	t.Run("store without RecordReader degrades to not-browsable", func(t *testing.T) {
 		e := buildStoreEntry(&patternKeysStore{}, "default", http.DefaultClient, nil, nil)
 		require.NotNil(t, e.state)
-		_, err := e.state.AppIDs(ctx)
+		_, err := e.state.AppIDs(ctx, false)
 		require.ErrorIs(t, err, state.ErrNotBrowsable)
 	})
 
 	t.Run("nil store degrades to no-store without panicking", func(t *testing.T) {
 		e := buildStoreEntry(nil, "default", http.DefaultClient, nil, nil)
 		require.NotNil(t, e.state)
-		_, err := e.state.AppIDs(ctx)
+		_, err := e.state.AppIDs(ctx, false)
 		require.ErrorIs(t, err, state.ErrNoStore)
 	})
 }

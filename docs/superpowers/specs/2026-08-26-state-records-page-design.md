@@ -261,11 +261,19 @@ prefix contribute nothing, so a store holding only unprefixed keys yields an
 empty list and the dropdown offers just "All apps"; those records are still
 listed and are reachable that way.
 
-Like `workflow.AppIDs`, it is deliberately **filter-independent**: it ignores
-`Search`, `AppID`, and `IncludeInternal`, so selecting an app never collapses
-the option list to that one app, and toggling internal keys never changes the
-available prefixes. (Both `app` and `workflow` keys share the same `seg[0]`, so
-the prefix set is the same either way.)
+It ignores `Search` and `AppID`, so selecting an app never collapses the option
+list to that one app. It does, however, honour **`IncludeInternal`**: a prefix
+is offered only if at least one of its keys survives that filter.
+
+> **Revised after first use (2026-08-27).** This section originally called
+> `AppIDs` fully filter-independent, reasoning that "both `app` and `workflow`
+> keys share the same `seg[0]`, so the prefix set is the same either way". That
+> is only true of an app that has *both* kinds of key. A real local store is
+> mostly *finished workflow apps* with no plain records left, so the default
+> (internal keys hidden) dropdown filled up with prefixes whose every row was
+> filtered out — pick one and the table is empty. The filter is applied per
+> key, so an app with plain records *and* workflow history still appears under
+> either setting, which is the case the original reasoning had in mind.
 
 ### Delete
 

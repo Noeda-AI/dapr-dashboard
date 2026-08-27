@@ -187,6 +187,7 @@ export function State() {
 
   const { data: storeAppIds } = useStateAppIds({
     store: selectedStore ?? undefined,
+    includeInternal,
     enabled: selectedStore !== null,
   })
   const appIds = useMemo(() => storeAppIds ?? [], [storeAppIds])

@@ -51,9 +51,21 @@ export function useStateRecord(key: string, store?: string, enabled = true) {
   })
 }
 
-export function useStateAppIds(params: { store?: string; enabled?: boolean }) {
+/**
+ * The selectable key prefixes. includeInternal must mirror the list query's:
+ * the server only reports a prefix that has at least one record surviving that
+ * filter, so the dropdown never offers an app whose every row is hidden.
+ */
+export function useStateAppIds(params: {
+  store?: string
+  includeInternal?: boolean
+  enabled?: boolean
+}) {
   const ctx = useRefreshInterval()
-  const qs = params.store ? `?store=${encodeURIComponent(params.store)}` : ''
+  const sp = new URLSearchParams()
+  if (params.store) sp.set('store', params.store)
+  if (params.includeInternal) sp.set('includeInternal', 'true')
+  const qs = sp.toString() ? `?${sp.toString()}` : ''
   return useQuery<string[]>({
     queryKey: ['state-appids', qs],
     queryFn: () => fetchJSON<string[]>(`/state/appids${qs}`),

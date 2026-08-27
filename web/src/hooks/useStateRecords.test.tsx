@@ -116,4 +116,26 @@ describe('useStateAppIds', () => {
     const { result } = renderHook(() => useStateAppIds({ store: 's1' }), { wrapper })
     await waitFor(() => expect(result.current.data).toEqual(['alpha', 'zeta']))
   })
+
+  // The prefix list has to be scoped by the same filter as the table, or the
+  // dropdown offers apps whose every record is hidden.
+  it('sends includeInternal only when set, and keys the cache on it', async () => {
+    const seen: string[] = []
+    server.use(
+      http.get('/api/state/appids', ({ request }) => {
+        seen.push(new URL(request.url).search)
+        return HttpResponse.json(['alpha'])
+      }),
+    )
+    const { result } = renderHook(() => useStateAppIds({ store: 's9' }), { wrapper })
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    expect(seen[0]).not.toContain('includeInternal')
+
+    const wide = renderHook(() => useStateAppIds({ store: 's9', includeInternal: true }), {
+      wrapper,
+    })
+    await waitFor(() => expect(wide.result.current.data).toBeDefined())
+    expect(seen.some((s) => s.includes('includeInternal=true'))).toBe(true)
+    expect(seen.length).toBe(2)
+  })
 })

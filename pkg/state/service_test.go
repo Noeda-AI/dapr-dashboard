@@ -137,7 +137,7 @@ func TestServiceDegradation(t *testing.T) {
 		require.ErrorIs(t, err, ErrNoStore)
 		_, err = svc.Record(ctx, "k")
 		require.ErrorIs(t, err, ErrNoStore)
-		_, err = svc.AppIDs(ctx)
+		_, err = svc.AppIDs(ctx, false)
 		require.ErrorIs(t, err, ErrNoStore)
 		res := svc.Delete(ctx, []string{"k"})
 		require.Len(t, res, 1)
@@ -174,22 +174,37 @@ func TestAppIDs(t *testing.T) {
 	f.set("bare-key-no-prefix", "v")
 	svc := New(f, f)
 
-	ids, err := svc.AppIDs(ctx)
+	ids, err := svc.AppIDs(ctx, true)
 	require.NoError(t, err)
 	require.Equal(t, []string{"alpha", "zeta"}, ids, "sorted, deduped, unprefixed keys excluded")
 
-	t.Run("is filter-independent: internal keys contribute their prefix too", func(t *testing.T) {
+	t.Run("an app with both app and internal keys survives the default filter", func(t *testing.T) {
+		ids, err := svc.AppIDs(ctx, false)
+		require.NoError(t, err)
+		require.Equal(t, []string{"alpha", "zeta"}, ids,
+			"alpha has workflow history but also plain records, so it stays")
+	})
+
+	t.Run("an internal-only prefix is hidden unless internal keys are shown", func(t *testing.T) {
 		only := newFakeStore()
 		only.set("gamma||dapr.internal.default.gamma.workflow||i1||metadata", "v")
-		ids, err := New(only, only).AppIDs(ctx)
+		only.set("delta||MyActor||a1||balance", "v")
+		svc := New(only, only)
+
+		ids, err := svc.AppIDs(ctx, false)
 		require.NoError(t, err)
-		require.Equal(t, []string{"gamma"}, ids)
+		require.Empty(t, ids,
+			"an app whose every record is filtered out must not be offered in the dropdown")
+
+		ids, err = svc.AppIDs(ctx, true)
+		require.NoError(t, err)
+		require.Equal(t, []string{"delta", "gamma"}, ids)
 	})
 
 	t.Run("a store of only unprefixed keys yields an empty list", func(t *testing.T) {
 		bare := newFakeStore()
 		bare.set("k1", "v")
-		ids, err := New(bare, bare).AppIDs(ctx)
+		ids, err := New(bare, bare).AppIDs(ctx, true)
 		require.NoError(t, err)
 		require.Empty(t, ids)
 	})
@@ -197,7 +212,7 @@ func TestAppIDs(t *testing.T) {
 
 func TestAppIDsPropagatesStoreErrors(t *testing.T) {
 	f := &erroringStore{}
-	_, err := New(f, f).AppIDs(context.Background())
+	_, err := New(f, f).AppIDs(context.Background(), false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "boom")
 }
