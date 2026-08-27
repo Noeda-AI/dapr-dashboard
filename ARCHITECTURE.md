@@ -21,7 +21,7 @@ The dashboard is a **single Go binary** that:
 3. **Discovers** running apps from three merged sources — the local process table (the same
    scan as `dapr list`), Docker Compose containers, and Dapr Testcontainers sessions — then
    enriches each with a live `GET /v1.0/metadata` call to the sidecar.
-4. **Reads workflows** from the Dapr **state store** backend (Redis / PostgreSQL / SQLite)
+4. **Reads workflows** from the Dapr **state store** backend (Redis / PostgreSQL / SQLite / MongoDB)
    when it can open one, and **live from the sidecar's gRPC workflow API** (Dapr ≥ 1.17)
    per app when it can't — Testcontainers apps always, and every reachable sidecar when no
    store is openable. That is what makes `state.in-memory` workflows inspectable.
@@ -372,7 +372,7 @@ automatically.
 
 `statestore.Detect` parses `state.*` `Component` YAML; `statestore.New` builds a `Store`
 (the `Keys` / `Get` / `BulkGet` / `Delete` / `Set` / `Close` interface) backed by
-components-contrib for **Redis, PostgreSQL, or SQLite** (anything else → `ErrUnsupported`).
+components-contrib for **Redis, PostgreSQL, SQLite, or MongoDB** (anything else → `ErrUnsupported`).
 Workflow keys are actor-state keys shaped
 `<appId>||dapr.internal.<ns>.<appId>.workflow||<instanceID>||<suffix>` (`keys.go`).
 
