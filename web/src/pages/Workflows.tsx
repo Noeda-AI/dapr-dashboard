@@ -9,28 +9,12 @@ import { ConfirmRemoveDialog } from '../components/ConfirmRemoveDialog'
 import { dedupeWorkflows } from '../lib/dedupeWorkflows'
 import { dedupeStores } from '../lib/dedupeStores'
 import { parseEnum } from '../lib/parseEnum'
-import { formatDateTimeParts } from '../lib/wallclock'
+import { DateTimeCell } from '../components/DateTimeCell'
 import type { StateStore, WorkflowStatus, WorkflowSummary } from '../types/workflow'
 
 const ALL_STATUSES: WorkflowStatus[] = ['Running', 'Completed', 'Failed', 'Terminated', 'Suspended']
 
 const STORE_KEY = 'devdash.workflowStore'
-
-/**
- * Render a timestamp as localized date and time in separate spans so they sit
- * on one line when there's room and stack (date first, time second) when the
- * column is narrow. Falls back to an em dash on missing/invalid input.
- */
-function DateTimeCell({ ts }: { ts?: string }) {
-  const parts = formatDateTimeParts(ts)
-  if (!parts) return <>—</>
-  return (
-    <>
-      <span className="dt-date">{parts.date}</span>{' '}
-      <span className="dt-time">{parts.time}</span>
-    </>
-  )
-}
 
 /** Compute a human-readable duration between two dates (or from createdAt to now if no end). */
 function formatDuration(createdAt?: string, endAt?: string): string {
@@ -399,49 +383,17 @@ export function Workflows() {
 
       {/* Load-error banner — page stays usable so the user can switch stores */}
       {loadError && (
-        <div
-          data-testid="load-error-banner"
-          style={{
-            marginBottom: 12,
-            padding: '8px 12px',
-            borderRadius: 8,
-            border: '1px solid var(--line)',
-            background: 'var(--surface)',
-            color: 'var(--fail-fg)',
-            fontSize: 13,
-          }}
-        >
+        <div className="banner danger" data-testid="load-error-banner">
           {loadError} — Select another state store or check the connection.
         </div>
       )}
 
       {/* Remove status banner */}
       {removeStatus && (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: '8px 12px',
-            borderRadius: 8,
-            border: '1px solid var(--line)',
-            background: 'var(--surface)',
-            color: removeStatus.failed > 0 ? 'var(--fail-fg)' : 'var(--accent-bright)',
-            fontSize: 13,
-          }}
-        >
+        <div className={removeStatus.failed > 0 ? 'banner danger' : 'banner ok'}>
           Removed {removeStatus.ok} workflow{removeStatus.ok !== 1 ? 's' : ''}
           {removeStatus.failed > 0 ? `, ${removeStatus.failed} failed` : ''}.{' '}
-          <button
-            onClick={() => setRemoveStatus(null)}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'inherit',
-              fontSize: 'inherit',
-              textDecoration: 'underline',
-              padding: 0,
-            }}
-          >
+          <button className="banner-dismiss" onClick={() => setRemoveStatus(null)}>
             Dismiss
           </button>
         </div>

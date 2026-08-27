@@ -44,6 +44,27 @@ func runStoreContract(t *testing.T, store statestore.Store) {
 	keys, _, err = store.Keys(ctx, keyLike, "", 0)
 	require.NoError(t, err)
 	require.Equal(t, []string{histKey}, keys)
+
+	// Records: metadata-preserving bulk read across every backend.
+	rr, ok := store.(statestore.RecordReader)
+	require.True(t, ok, "backend must implement RecordReader")
+
+	recs, err := rr.Records(ctx, []string{histKey, "k||a||1||absent"})
+	require.NoError(t, err)
+	require.Len(t, recs, 1, "a missing key must be omitted, not returned empty")
+	require.Equal(t, histKey, recs[0].Key)
+	require.Equal(t, "v2", string(recs[0].Value))
+	require.NotEmpty(t, recs[0].ETag, "all four backends return an etag for a written key")
+	require.Nil(t, recs[0].TTLExpire, "no TTL was set on this key")
+
+	require.Empty(t, mustRecords(t, rr, nil), "an empty key list is a no-op")
+}
+
+func mustRecords(t *testing.T, rr statestore.RecordReader, keys []string) []statestore.Record {
+	t.Helper()
+	recs, err := rr.Records(context.Background(), keys)
+	require.NoError(t, err)
+	return recs
 }
 
 func TestSQLiteStoreContract(t *testing.T) {

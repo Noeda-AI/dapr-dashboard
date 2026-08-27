@@ -144,7 +144,11 @@ func runServe(ctx context.Context, mode Mode, containerPosture bool, settings se
 		}
 		appNS = contractNamespaces(scan)
 		appsSvc = discovery.New(scan, client)
-		caps = &server.Capabilities{Workflows: settings.StateStore != "", Mode: string(ModeAspire)}
+		caps = &server.Capabilities{
+			Workflows: settings.StateStore != "",
+			State:     settings.StateStore != "",
+			Mode:      string(ModeAspire),
+		}
 	default:
 		src := sourcesFor(mode, discovery.AspireContractPresent(os.Getenv))
 		_, crtRunner := containerruntime.Detect()
