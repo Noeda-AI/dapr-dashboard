@@ -92,6 +92,7 @@ All tokens are CSS custom properties. Reference them with `var(--name)`.
 | Token | Use |
 |---|---|
 | `--bg` | App background (behind cards) |
+| `--canvas` / `--canvas-text` | `html`/`body` only — the surface behind `.app`, visible through overscroll and the scrollbar gutter. Defined on `:root[data-theme=…]`, unlike every other token; keep `--canvas` equal to dark `--bg` (a styleguide test enforces it). Never use in a component — reach for `--bg`. |
 | `--surface` | Card / panel / table background |
 | `--surface-2` | Subtle raised fill: table headers, hover rows, chips, inputs |
 | `--raise` | Elevated control (active segment in `.segs`) |
@@ -335,7 +336,11 @@ component fails the suite until the doc is updated.
 - `.kebab` — the `⋯` row-actions glyph.
 
 **Controls**
-- `.btn` + `.btn.primary` / `.btn.ghost` / `.btn.danger` — buttons.
+- `.btn` + `.btn.primary` / `.btn.ghost` / `.btn.danger` — buttons. A gated action stays
+  `disabled` rather than hidden (see §6). Every variant has a `:disabled` style, enforced by a
+  styleguide test: the primary's accent fill recedes to `--surface-2` / `--faint`, and the
+  ghost and danger variants drop to `--faint` text on a `--line-soft` border. The mint and the
+  red are both "this action can be taken" signals, so neither survives being disabled.
   `.primary` = solid green affirmative action; `.danger` = red outline for
   destructive / disruptive actions (Stop / Remove / Force delete / Disconnect);
   `.ghost` = neutral outline.
@@ -351,6 +356,25 @@ component fails the suite until the doc is updated.
 - `.field` — a label-over-control row (`grid`, `gap`); `.field > label` is the muted caption.
   `.req` marks a required-field asterisk; `.field-err` is the inline error line under a control;
   `.field-row` lays out a control plus adjacent element horizontally.
+- `:disabled` — `.inp` and `.select` share one rule (`--surface-2` fill, `--faint` text,
+  `--line-soft` border, default cursor) so an input and a dropdown beside it recede together
+  and match the disabled buttons. A styleguide test requires it. Prefer omitting a control the
+  user can't use at all over rendering it disabled (§7 capability gating); disable it when it
+  is merely unavailable *right now* — a field waiting on a prior choice.
+
+**Dropdowns** — every `<select>` takes one of exactly two variants, and both share the
+`--chevron` arrow (`appearance: none`, so the OS arrow never shows): `.select` in filter bars
+and toolbars, `select.inp` in form fields. A styleguide test enforces the pair. A free-text
+field with suggestions is an `<input list>` + `<datalist>` on `.inp` — used for the State
+page's New record app id, where a prefix that has no records yet must still be typeable.
+
+The **popup** either one opens is drawn by the OS *outside the page*, so no CSS reaches inside
+it. `color-scheme` is the only control, and the browser reads it from the **document root** —
+which is why `App.tsx` mirrors `data-theme` onto `<html>` and `theme.css` carries
+`:root[data-theme=…] { color-scheme: … }`. The `.app[data-theme=…]` declaration covers in-page
+control internals but cannot reach an OS-drawn popup; putting it only there leaves the
+dropdown light (or system-grey) in the dark theme. The same switch governs checkbox glyphs and
+scrollbars.
 
 **Feedback**
 - `.toast` (`.show`) — driven by `useToast`.
