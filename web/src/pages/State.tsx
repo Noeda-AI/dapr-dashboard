@@ -14,17 +14,36 @@ import { dedupeStores } from '../lib/dedupeStores'
 import { highlightJson } from '../lib/json-highlight'
 import { copyText } from '../lib/clipboard'
 import { useToast } from '../lib/toast'
+import { decodeBase64Preview } from '../lib/base64'
 import type { StateStore } from '../types/workflow'
 import type { StateItem } from '../types/state'
 
 const STORE_KEY = 'devdash.stateStore'
 
-/** Humanize a byte count for the Size column. */
+/**
+ * Humanize a byte count for the Size column. One decimal below 100 and none
+ * above it, so the widest possible result ("1023 KB") is 7 characters and the
+ * fixed-width column never wraps.
+ */
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   const kb = bytes / 1024
-  if (kb < 1024) return `${kb.toFixed(1)} KB`
-  return `${(kb / 1024).toFixed(1)} MB`
+  if (kb < 1024) return `${round(kb)} KB`
+  return `${round(kb / 1024)} MB`
+}
+
+function round(n: number): string {
+  return n < 100 ? n.toFixed(1) : n.toFixed(0)
+}
+
+/**
+ * The Value cell's text. Only base64 rows are affected by the decode toggle,
+ * and a preview that will not decode keeps its raw base64 rather than emptying
+ * the cell.
+ */
+function cellValue(rec: StateItem, decode: boolean): string {
+  if (!decode || rec.encoding !== 'base64') return rec.preview
+  return decodeBase64Preview(rec.preview) ?? rec.preview
 }
 
 /**
@@ -95,6 +114,7 @@ export function State() {
   const [searchInput, setSearchInput] = useState(urlSearch)
   const [debouncedSearch, setDebouncedSearch] = useState(urlSearch)
   const [includeInternal, setIncludeInternal] = useState(false)
+  const [decodeBase64, setDecodeBase64] = useState(false)
   const [page, setPage] = useState<string | undefined>(urlPage)
   // The API returns only a forward cursor, so Prev is served by stacking the
   // (token, offset) of each page we leave. Empty = on the first page.
@@ -234,6 +254,9 @@ export function State() {
 
   const allSelected = selected.size === items.length && items.length > 0
   const selectedKeys = Array.from(selected)
+  // Decoding is meaningless without a base64 row, so the control only appears
+  // when the current page actually has one.
+  const hasBase64 = items.some((r) => r.encoding === 'base64')
 
   if (noStores) {
     return (
@@ -374,6 +397,18 @@ export function State() {
           />
           Show internal keys
         </label>
+
+        {hasBase64 && (
+          <label className="childtoggle">
+            <input
+              type="checkbox"
+              aria-label="Decode base64"
+              checked={decodeBase64}
+              onChange={(e) => setDecodeBase64(e.target.checked)}
+            />
+            Decode base64
+          </label>
+        )}
       </div>
 
       <div className="card">
@@ -407,10 +442,10 @@ export function State() {
               No state records found
             </p>
           ) : (
-            <table className="wf">
+            <table className="wf statetbl">
               <thead>
                 <tr>
-                  <th style={{ width: 34 }}>
+                  <th className="c-sel">
                     <span
                       className={allSelected ? 'cbx on' : 'cbx'}
                       role="checkbox"
@@ -426,12 +461,12 @@ export function State() {
                       }}
                     />
                   </th>
-                  <th>Key</th>
-                  <th>App</th>
-                  <th>Value</th>
-                  <th>Size</th>
-                  <th>Version</th>
-                  <th>TTL</th>
+                  <th className="c-key">Key</th>
+                  <th className="c-app">App</th>
+                  <th className="c-val">Value</th>
+                  <th className="c-size">Size</th>
+                  <th className="c-ver">Version</th>
+                  <th className="c-ttl">TTL</th>
                 </tr>
               </thead>
               <tbody>
@@ -459,7 +494,7 @@ export function State() {
                             }}
                           />
                         </td>
-                        <td className="iid mono">
+                        <td className="iid mono wrapany">
                           <span aria-hidden="true" style={{ marginRight: 6 }}>
                             {expanded ? '▾' : '▸'}
                           </span>
@@ -471,8 +506,8 @@ export function State() {
                           )}
                         </td>
                         <td>{rec.appId || <span className="faint">—</span>}</td>
-                        <td className="mono">
-                          {rec.preview}
+                        <td className="mono wrapany">
+                          {cellValue(rec, decodeBase64)}
                           {rec.encoding === 'base64' && (
                             <span className="typechip" style={{ marginLeft: 6 }}>
                               base64

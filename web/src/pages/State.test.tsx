@@ -90,6 +90,13 @@ describe('State page', () => {
     expect(row.getByText('3')).toBeInTheDocument()
   })
 
+  // The Size column is a fixed 78px, so no value may exceed 7 characters.
+  it('keeps large sizes short enough for the fixed-width column', async () => {
+    stubApi({ items: [{ ...ITEM, size: 200_000 }] })
+    renderAt()
+    expect(await screen.findByText('195 KB')).toBeInTheDocument()
+  })
+
   it('lists the store selector and links to the selected store component', async () => {
     stubApi()
     renderAt()
@@ -177,6 +184,50 @@ describe('State page', () => {
       expect(within(appSelect).queryByRole('option', { name: 'workflow-only-app' })).not.toBeNull(),
     )
     expect(seen.some((s) => s.includes('includeInternal=true'))).toBe(true)
+  })
+
+  // Decoding is only meaningful for base64 rows, so the control must not
+  // clutter the filter bar of a store that has none.
+  describe('base64 decoding', () => {
+    const B64 = 'CgwI/LyM02FwaXNlcnZpY2UymQFEaWFnbm9zZVN1YnN5c3RlbUFjdGl2aXR5Gh8='
+    const B64_ITEM = {
+      ...ITEM,
+      key: 'apiservice||dapr.internal.default.apiservice.workflow||mission-001||history-00',
+      logicalKey: 'dapr.internal.default.apiservice.workflow||mission-001||history-00',
+      kind: 'workflow' as const,
+      preview: B64,
+      encoding: 'base64' as const,
+    }
+
+    it('hides the option when no record on the page is base64', async () => {
+      stubApi()
+      renderAt()
+      await screen.findByText('order-42')
+      expect(screen.queryByLabelText('Decode base64')).toBeNull()
+    })
+
+    it('offers the option and decodes only the base64 rows', async () => {
+      stubApi({ items: [ITEM, B64_ITEM] })
+      renderAt()
+      await screen.findByText('order-42')
+
+      const toggle = await screen.findByLabelText('Decode base64')
+      expect(screen.getByText(B64)).toBeInTheDocument()
+
+      await userEvent.click(toggle)
+      await waitFor(() => expect(screen.queryByText(B64)).toBeNull())
+      // Unique to the decoded value — "apiservice" alone also appears in the key.
+      expect(screen.getByText(/DiagnoseSubsystemActivity/)).toBeInTheDocument()
+      // The text row is untouched by decoding.
+      expect(screen.getByText('{ "id": 42 }')).toBeInTheDocument()
+    })
+
+    it('leaves the raw base64 in place when it will not decode', async () => {
+      stubApi({ items: [{ ...B64_ITEM, preview: '!!!!' }] })
+      renderAt()
+      await userEvent.click(await screen.findByLabelText('Decode base64'))
+      expect(screen.getByText('!!!!')).toBeInTheDocument()
+    })
   })
 
   it('marks a non-app record with its kind', async () => {

@@ -343,6 +343,24 @@ table.wf tbody tr:last-child td { border-bottom: none; }
 .appcell { display: inline-flex; align-items: center; gap: 6px; }
 .dprchip { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--dapr); color: var(--dapr); }
 .cbx { width: 14px; height: 14px; border: 1.5px solid var(--faint); border-radius: 4px; display: inline-block; vertical-align: middle; }
+
+/* ---- State page table ---- */
+/* Fixed layout: state keys and base64 values are long unbroken tokens with no
+   break opportunity, so an auto-layout table stretches its columns to fit them
+   and the whole page scrolls sideways. Widths are declared on the header cells;
+   the two text columns take the remaining slack and wrap inside it. */
+table.wf.statetbl { table-layout: fixed; min-width: 900px; }
+.statetbl .c-sel { width: 34px; }
+.statetbl .c-key { width: 25%; }
+.statetbl .c-app { width: 100px; }
+.statetbl .c-val { width: 30%; }
+/* 7 mono chars + the 28px cell padding — "1023 KB" is the widest size string,
+   and nowrap keeps it on one line rather than breaking at its space. */
+.statetbl .c-size { width: 78px; white-space: nowrap; }
+.statetbl .c-ver { width: 80px; }
+.statetbl .c-ttl { width: 120px; }
+/* anywhere (not break-all) still prefers a space when the text has one. */
+.statetbl td.wrapany { white-space: normal; overflow-wrap: anywhere; }
 .cbx.on { position: relative; }
 .cbx.on::after { content: ""; position: absolute; left: 4px; top: 1px; width: 3px; height: 7px; border: solid var(--text); border-width: 0 2px 2px 0; transform: rotate(45deg); }
 tr.sel { background: color-mix(in srgb, var(--accent-bright) 9%, var(--surface)); }
