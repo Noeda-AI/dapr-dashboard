@@ -50,7 +50,15 @@ function cellValue(rec: StateItem, decode: boolean): string {
  * The expanded row's body: the full value plus the metadata the table
  * abbreviates. The value is fetched only while this is mounted.
  */
-function RecordPanel({ recordKey, store }: { recordKey: string; store?: string }) {
+function RecordPanel({
+  recordKey,
+  store,
+  decode,
+}: {
+  recordKey: string
+  store?: string
+  decode: boolean
+}) {
   const { data, isLoading, isError } = useStateRecord(recordKey, store)
   const { toast, toastNode } = useToast()
 
@@ -68,6 +76,10 @@ function RecordPanel({ recordKey, store }: { recordKey: string; store?: string }
       </p>
     )
   }
+  // Null when decoding is off, the value is already text, or the bytes yield
+  // nothing printable — in every case the raw value is what gets rendered.
+  const decoded = decode && data.encoding === 'base64' ? decodeBase64Preview(data.value) : null
+
   return (
     <div className="panel" data-testid="record-panel">
       {/* .panel > .ph already lays out a header row and pushes .copybtn right. */}
@@ -75,24 +87,28 @@ function RecordPanel({ recordKey, store }: { recordKey: string; store?: string }
         <span className="mono" style={{ minWidth: 0, wordBreak: 'break-all' }}>
           {data.key}
         </span>
+        {/* Copy is always the stored value: the decoded rendering is lossy,
+            so copying it would hand over bytes that were never in the store. */}
         <button
           type="button"
           className="copybtn"
+          title={decoded ? 'Copy the raw base64, not the decoded rendering' : undefined}
           onClick={() => {
             copyText(data.value)
-            toast.show('Value copied')
+            toast.show(decoded ? 'Raw value copied' : 'Value copied')
           }}
         >
-          ⧉ Copy
+          {decoded ? '⧉ Copy raw' : '⧉ Copy'}
         </button>
       </div>
       <div style={{ padding: 12 }}>
         <pre className="json" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          {highlightJson(data.value)}
+          {highlightJson(decoded ?? data.value)}
         </pre>
         <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
           {formatSize(data.size)} · version {data.etag || <span className="faint">—</span>} ·{' '}
           {data.encoding}
+          {decoded ? ' · decoded, unprintable bytes shown as ·' : ''}
           {data.contentType ? ` · ${data.contentType}` : ''}
           {data.truncated ? ' · truncated at 1 MB' : ''}
         </div>
@@ -528,7 +544,11 @@ export function State() {
                       {expanded && (
                         <tr>
                           <td colSpan={7} style={{ background: 'var(--surface)' }}>
-                            <RecordPanel recordKey={rec.key} store={selectedStore ?? undefined} />
+                            <RecordPanel
+                              recordKey={rec.key}
+                              store={selectedStore ?? undefined}
+                              decode={decodeBase64}
+                            />
                           </td>
                         </tr>
                       )}

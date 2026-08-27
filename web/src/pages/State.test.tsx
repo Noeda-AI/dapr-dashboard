@@ -45,6 +45,18 @@ const ITEM = {
   ttlExpiresAt: '2026-08-26T14:02:11Z',
 }
 
+// A durabletask-history-shaped blob: protobuf framing with readable strings.
+const B64 = 'CgwI/LyM02FwaXNlcnZpY2UymQFEaWFnbm9zZVN1YnN5c3RlbUFjdGl2aXR5Gh8='
+
+const B64_ITEM = {
+  ...ITEM,
+  key: 'apiservice||dapr.internal.default.apiservice.workflow||mission-001||history-00',
+  logicalKey: 'dapr.internal.default.apiservice.workflow||mission-001||history-00',
+  kind: 'workflow' as const,
+  preview: B64,
+  encoding: 'base64' as const,
+}
+
 function stubApi(overrides?: { items?: unknown[]; nextToken?: string }) {
   server.use(
     http.get('/api/statestores', () => HttpResponse.json(STORES)),
@@ -189,16 +201,6 @@ describe('State page', () => {
   // Decoding is only meaningful for base64 rows, so the control must not
   // clutter the filter bar of a store that has none.
   describe('base64 decoding', () => {
-    const B64 = 'CgwI/LyM02FwaXNlcnZpY2UymQFEaWFnbm9zZVN1YnN5c3RlbUFjdGl2aXR5Gh8='
-    const B64_ITEM = {
-      ...ITEM,
-      key: 'apiservice||dapr.internal.default.apiservice.workflow||mission-001||history-00',
-      logicalKey: 'dapr.internal.default.apiservice.workflow||mission-001||history-00',
-      kind: 'workflow' as const,
-      preview: B64,
-      encoding: 'base64' as const,
-    }
-
     it('hides the option when no record on the page is base64', async () => {
       stubApi()
       renderAt()
@@ -416,6 +418,74 @@ describe('State page row expansion', () => {
     await userEvent.click(screen.getByRole('button', { name: /copy/i }))
     expect(copyText).toHaveBeenCalledWith(RECORD.value)
     expect(await screen.findByText('Value copied')).toBeInTheDocument()
+  })
+
+  describe('base64 values', () => {
+    const B64_RECORD = {
+      ...RECORD,
+      key: B64_ITEM.key,
+      logicalKey: B64_ITEM.logicalKey,
+      kind: 'workflow' as const,
+      value: B64,
+      encoding: 'base64' as const,
+    }
+
+    // highlightJson splits its output across spans, so the panel's value is
+    // asserted on concatenated textContent rather than a single text node.
+    async function expandB64Row() {
+      stubApi({ items: [B64_ITEM] })
+      server.use(http.get('/api/state/record', () => HttpResponse.json(B64_RECORD)))
+      renderAt()
+      await userEvent.click(await screen.findByText(B64_ITEM.logicalKey))
+      return screen.findByTestId('record-panel')
+    }
+
+    const toggle = () => screen.findByLabelText('Decode base64')
+
+    it('shows the raw value until the decode option is on', async () => {
+      const panel = await expandB64Row()
+      expect(panel).toHaveTextContent(B64)
+
+      await userEvent.click(await toggle())
+      await waitFor(() => expect(panel).not.toHaveTextContent(B64))
+      expect(panel).toHaveTextContent('DiagnoseSubsystemActivity')
+    })
+
+    it('keeps the row expanded when the decode option is toggled', async () => {
+      await expandB64Row()
+      await userEvent.click(await toggle())
+      expect(await screen.findByTestId('record-panel')).toBeInTheDocument()
+    })
+
+    // The decoded rendering is lossy — unprintable bytes became placeholders —
+    // so copying it would hand over something that is not the stored value.
+    it('copies the raw value even while the decoded view is shown', async () => {
+      const panel = await expandB64Row()
+      await userEvent.click(await toggle())
+
+      await userEvent.click(within(panel).getByRole('button', { name: /copy raw/i }))
+      expect(copyText).toHaveBeenCalledWith(B64)
+    })
+
+    it('notes the decoding in the panel metadata', async () => {
+      const panel = await expandB64Row()
+      await userEvent.click(await toggle())
+      await waitFor(() => expect(panel).toHaveTextContent(/decoded/i))
+    })
+
+    it('leaves a text value alone when the decode option is on', async () => {
+      stubApi({ items: [ITEM, B64_ITEM] })
+      server.use(http.get('/api/state/record', () => HttpResponse.json(RECORD)))
+      renderAt()
+      await screen.findByText('order-42')
+      await userEvent.click(await toggle())
+      await userEvent.click(screen.getByText('order-42'))
+
+      const panel = await screen.findByTestId('record-panel')
+      expect(panel).toHaveTextContent('"total"')
+      expect(panel).not.toHaveTextContent(/decoded/i)
+      expect(within(panel).getByRole('button', { name: '⧉ Copy' })).toBeInTheDocument()
+    })
   })
 
   it('collapses the expanded row when a filter changes', async () => {
