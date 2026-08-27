@@ -311,48 +311,16 @@ export function State() {
       </div>
 
       {loadError && (
-        <div
-          data-testid="load-error-banner"
-          style={{
-            marginBottom: 12,
-            padding: '8px 12px',
-            borderRadius: 8,
-            border: '1px solid var(--line)',
-            background: 'var(--surface)',
-            color: 'var(--fail-fg)',
-            fontSize: 13,
-          }}
-        >
+        <div className="banner danger" data-testid="load-error-banner">
           {loadError} — Select another state store or check the connection.
         </div>
       )}
 
       {deleteStatus && (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: '8px 12px',
-            borderRadius: 8,
-            border: '1px solid var(--line)',
-            background: 'var(--surface)',
-            color: deleteStatus.failed > 0 ? 'var(--fail-fg)' : 'var(--accent-bright)',
-            fontSize: 13,
-          }}
-        >
+        <div className={deleteStatus.failed > 0 ? 'banner danger' : 'banner ok'}>
           Deleted {deleteStatus.ok} record{deleteStatus.ok !== 1 ? 's' : ''}
           {deleteStatus.failed > 0 ? `, ${deleteStatus.failed} failed` : ''}.{' '}
-          <button
-            onClick={() => setDeleteStatus(null)}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'inherit',
-              fontSize: 'inherit',
-              textDecoration: 'underline',
-              padding: 0,
-            }}
-          >
+          <button className="banner-dismiss" onClick={() => setDeleteStatus(null)}>
             Dismiss
           </button>
         </div>

@@ -383,49 +383,17 @@ export function Workflows() {
 
       {/* Load-error banner — page stays usable so the user can switch stores */}
       {loadError && (
-        <div
-          data-testid="load-error-banner"
-          style={{
-            marginBottom: 12,
-            padding: '8px 12px',
-            borderRadius: 8,
-            border: '1px solid var(--line)',
-            background: 'var(--surface)',
-            color: 'var(--fail-fg)',
-            fontSize: 13,
-          }}
-        >
+        <div className="banner danger" data-testid="load-error-banner">
           {loadError} — Select another state store or check the connection.
         </div>
       )}
 
       {/* Remove status banner */}
       {removeStatus && (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: '8px 12px',
-            borderRadius: 8,
-            border: '1px solid var(--line)',
-            background: 'var(--surface)',
-            color: removeStatus.failed > 0 ? 'var(--fail-fg)' : 'var(--accent-bright)',
-            fontSize: 13,
-          }}
-        >
+        <div className={removeStatus.failed > 0 ? 'banner danger' : 'banner ok'}>
           Removed {removeStatus.ok} workflow{removeStatus.ok !== 1 ? 's' : ''}
           {removeStatus.failed > 0 ? `, ${removeStatus.failed} failed` : ''}.{' '}
-          <button
-            onClick={() => setRemoveStatus(null)}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'inherit',
-              fontSize: 'inherit',
-              textDecoration: 'underline',
-              padding: 0,
-            }}
-          >
+          <button className="banner-dismiss" onClick={() => setRemoveStatus(null)}>
             Dismiss
           </button>
         </div>

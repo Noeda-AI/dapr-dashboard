@@ -267,7 +267,7 @@ component fails the suite until the doc is updated.
 | Pattern | Pointer |
 |---|---|
 | Status → pill | `components/StatusPill.tsx` — status string → `.pill .s-*` + uppercased label. **Don't hand-map statuses.** |
-| Timestamp table cell | `components/DateTimeCell.tsx` — a timestamp split into `.dt-date` + `.dt-time` spans so it sits on one line when there's room and stacks when the column is narrow. Falls back to an em dash on missing/invalid input. Used by the Workflows and State tables. |
+| Timestamp table cell | `components/DateTimeCell.tsx` — a timestamp split into `.dt-date` + `.dt-time` spans so it sits on one line when there's room and stacks when the column is narrow. Falls back to a `.faint` em dash on missing/invalid input. Used by the Workflows and State tables. |
 | Modal dialog | `components/Modal.tsx` — focus-trapped shell (`.modal-backdrop` + `.card.modal-card`); accepts `initialFocusRef` (element focused on open) and `narrow` (the 420px confirm width). Traps/restores focus via `hooks/useModalFocus.ts` — reuse it, don't hand-roll traps. |
 | Confirmation dialog | `components/ConfirmDialog.tsx` — a narrow `Modal` with a Cancel + confirm footer. Cancel gets initial focus (Enter can't fire the action by accident); the confirm button is `.btn.danger` by default, or `.btn.primary` via `danger={false}` for non-destructive actions (Start/Restart). **Never use `window.confirm`** — every confirmation goes through this component. `components/ConfirmRemoveDialog.tsx` (workflow delete: mechanism summary + force checkbox) is the reference composition for a confirm with extra body content. |
 | Save/cancel form dialog | `components/form/DialogShell.tsx` — titled `Modal` with Save/Cancel footer + `duplicateNameError` name-collision guard; the builder dialogs are the reference usage. |
@@ -497,6 +497,19 @@ copy/download buttons per builder.
   empty cell.
 - **Copy-to-clipboard:** `.copybtn` (or click-to-copy on a `.vv.mono`) → `copyText()`
   → `toast.show('… copied')`. The `⧉ Copy` label is the convention.
+- **Inline page banners:** a non-blocking message above the content — a load error
+  the page degrades around, or the result of a bulk action — is a `.banner`, with
+  `.danger` (failure) or `.ok` (success) for the text color; the neutral `.banner`
+  alone is informational. A dismiss control inside one is a `.banner-dismiss`
+  (an underlined, inherit-colored button). Used by the Workflows and State pages.
+  ```tsx
+  <div className={failed > 0 ? 'banner danger' : 'banner ok'}>
+    Removed {ok} workflow{ok !== 1 ? 's' : ''}{failed > 0 ? `, ${failed} failed` : ''}.{' '}
+    <button className="banner-dismiss" onClick={dismiss}>Dismiss</button>
+  </div>
+  ```
+  A banner never replaces the page chrome — the selector and filters stay usable so
+  the user can switch to a working store.
 - **Clickable card rows:** `table.t.click` (or `table.wf`) handles cursor + hover;
   navigate from the row's `onClick`.
 
