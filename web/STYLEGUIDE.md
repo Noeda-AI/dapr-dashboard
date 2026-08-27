@@ -254,6 +254,12 @@ if (error) return <div className="page">{HEADER}<p className="err">Error loading
 Tip: hoist a static `PAGE_HEADER` const (as `Applications.tsx` does) so every state
 shows the same header.
 
+Empty states may add one muted hint paragraph below the "nothing here" line. Keep
+that copy in `src/content/empty-states.yaml` (loaded by `src/lib/emptyState.ts`) and
+render it with `renderCopyLinks` (`src/lib/copy-links.tsx`), which turns its
+`[label](https://…)` markdown into `.celllink` external links — so wording and links
+can be edited without touching a component.
+
 ---
 
 ## 5. Component catalog

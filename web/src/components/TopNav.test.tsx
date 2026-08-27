@@ -70,6 +70,11 @@ describe('TopNav', () => {
     expect(screen.getByRole('img', { name: /diagrid/i })).toBeInTheDocument()
   })
 
+  it('names the product Dapr Dev Dashboard', () => {
+    renderNav()
+    expect(screen.getByText('Dapr Dev Dashboard')).toBeInTheDocument()
+  })
+
   it('renders all 9 nav links', () => {
     renderNav()
     for (const item of NAV_ITEMS) {

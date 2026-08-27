@@ -66,7 +66,7 @@ export function TopNav({ theme, onThemeChange }: TopNavProps) {
       <span className="brand">
         <Logo height={21} />
         <span className="dot">/</span>
-        <span className="app-name">Dev Dashboard</span>
+        <span className="app-name">Dapr Dev Dashboard</span>
       </span>
 
       <nav className="nav" aria-label="Primary navigation">
