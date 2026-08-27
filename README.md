@@ -230,10 +230,13 @@ Developers use the dashboard to observe and debug Dapr apps while building local
   and a continuously-ticking wall-clock while it runs.
 - **Clean up workflows** — terminate and/or purge individual or bulk workflows, with an
   explicit "force delete" fallback for stuck/orphaned state.
-- **Browse & clean state records** — the **State** page lists the records in any connected
-  state store: key, value preview, version (etag), and TTL, paginated over the backend's own
-  key cursor, with row expansion for the full value and multi-select deletion. Read only —
-  records cannot be edited from the dashboard. Two limitations worth knowing:
+- **Browse, add & clean state records** — the **State** page lists the records in any connected
+  state store: key, app prefix, value preview, size, version (etag), and TTL, paginated over the
+  backend's own key cursor, with row expansion for the full value and a *Decode base64* toggle for
+  encoded values. **+ New record** writes a record under `<app-id>||<key>` — the same key shape
+  Dapr writes — and refuses a key that already exists unless you opt into overwriting; records can
+  be deleted individually or by multi-select. There is no in-place edit: overwrite the key instead.
+  Two limitations worth knowing:
   **workflow history and actor state are hidden by default** (they live in the same keyspace
   as your app's records — use *Show internal keys* to reveal them), and **there is no
   "last modified" column** — Dapr's state components do not expose a modification timestamp,
@@ -363,7 +366,7 @@ marked `actorStateStore: "true"` (falling back to the first detected). Check:
   store by hand via the connection manager on the Components page.
 - Workflow keys are namespaced; the dashboard defaults to `default`. For another namespace, pass
   `--namespace <ns>`.
-- Only **Redis / PostgreSQL / SQLite** state stores can be opened directly. Apps whose store
+- Only **Redis / PostgreSQL / SQLite / MongoDB** state stores can be opened directly. Apps whose store
   the dashboard can't open (e.g. `state.in-memory`, or a Testcontainers app whose store lives
   inside the container) are served **via their sidecar's gRPC workflow API** instead — this
   requires Dapr ≥ 1.17 and only works while the sidecar is running.
@@ -578,7 +581,7 @@ sidecars and state store.
   component YAML declared in test config is extracted from the container so it appears on the
   Components page. All sources are merged, so one failing never hides the others.
 - **Workflows** are read from the detected **state store backend** (Redis / PostgreSQL /
-  SQLite); a client is built from the auto-detected component YAML. When the dashboard cannot
+  SQLite / MongoDB); a client is built from the auto-detected component YAML. When the dashboard cannot
   open an app's store — Testcontainers apps (whose store lives inside the container,
   `state.in-memory` included), or any app when no store is openable — workflows are read live
   from the **sidecar's gRPC workflow API** (Dapr ≥ 1.17) instead, per app. Purge uses the
