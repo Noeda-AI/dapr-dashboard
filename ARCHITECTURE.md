@@ -264,6 +264,11 @@ All domain services are passed in via `server.Options` (`BasePath`, `DistFS`, `V
 | GET | `/api/workflows/appids` | workflow | workflows.go |
 | GET | `/api/workflows/{appId}/{instanceId}` | workflow | workflows.go |
 | POST | `/api/workflows/purge` | workflow (remover) | workflows.go |
+| GET | `/api/state` | reconciler (StateBackend) | state.go |
+| GET | `/api/state/record` | state | state.go |
+| POST | `/api/state/record` | state (write) | state.go |
+| GET | `/api/state/appids` | state | state.go |
+| POST | `/api/state/delete` | state | state.go |
 | GET | `/api/resources` | resources | resources.go |
 | GET | `/api/resources/{kind}/{name}` | resources | resources.go |
 | GET | `/api/news` | news | news.go |
@@ -401,7 +406,7 @@ components-contrib `state.Store` (+ `KeysLiker`) interface.
 
 ### State records (`pkg/state`)
 
-`pkg/state` reads and deletes state-store records for the State page. It pages keys through
+`pkg/state` reads, writes and deletes state-store records for the State page. It pages keys through
 `statestore.Store.Keys`, classifies each key (app / workflow / actor) on key text alone, then
 does **one bulk value read per page** via `statestore.RecordReader` — a metadata-preserving
 companion to `Get`/`BulkGet` that keeps the etag and TTL expiry those two discard. Search and
@@ -414,6 +419,12 @@ enumerate keys, so a store that will not open (or a backend that does not implem
 degraded read path. The optional-interface assertion happens in exactly one place,
 `cmd/workflow.go:buildStoreEntry`; the reconciler's `StateFor` resolves the per-store service
 for `/api/state`.
+
+Writes (`Service.Set`, `POST /api/state/record`) compose the stored key from an app-id prefix
+and a logical key via `state.ComposeKey`, so the API cannot be asked to write a three-segment
+key that the listing would classify as actor state. The value is stored verbatim — no JSON
+wrapping — and an existing key is refused with `ErrExists` (409) unless the request opts into
+overwriting.
 
 ### Control plane (`pkg/controlplane`)
 
