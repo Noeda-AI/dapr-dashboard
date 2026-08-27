@@ -10,6 +10,7 @@ import {
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { DateTimeCell } from '../components/DateTimeCell'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { NewStateRecordDialog } from '../components/NewStateRecordDialog'
 import { dedupeStores } from '../lib/dedupeStores'
 import { highlightJson } from '../lib/json-highlight'
 import { copyText } from '../lib/clipboard'
@@ -141,6 +142,7 @@ export function State() {
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   const [deleteStatus, setDeleteStatus] = useState<{ ok: number; failed: number } | null>(null)
   const { mutate: deleteRecords } = useDeleteStateRecords()
 
@@ -309,8 +311,8 @@ export function State() {
           <h1>State records</h1>
           <div className="sub">
             {appIds.length > 0
-              ? `Across ${appIds.length} prefix${appIds.length !== 1 ? 'es' : ''} · read only`
-              : 'Read only'}
+              ? `Across ${appIds.length} prefix${appIds.length !== 1 ? 'es' : ''}`
+              : 'Browse, add and delete records'}
           </div>
         </div>
         <div className="ctrlset">
@@ -340,6 +342,16 @@ export function State() {
                   component
                 </Link>
               )}
+              {/* A store we cannot read is a store we should not write to: the
+                  key it would refuse or clobber is unknowable from here. */}
+              <button
+                type="button"
+                className="btn primary"
+                disabled={selectedStore === null || isError}
+                onClick={() => setCreateOpen(true)}
+              >
+                + New record
+              </button>
             </>
           ) : (
             <span className="chip">
@@ -599,9 +611,18 @@ export function State() {
       </div>
 
       <p className="hint">
-        Tip — records are read only. Use “Show internal keys” to reveal workflow history and actor
+        Tip — a new record is stored under the key <span className="mono">&lt;app-id&gt;||&lt;key&gt;</span>,
+        the same shape Dapr writes. Use “Show internal keys” to reveal workflow history and actor
         state.
       </p>
+
+      <NewStateRecordDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        store={selectedStore ?? undefined}
+        appIds={appIds}
+        defaultAppId={selectedApp || undefined}
+      />
 
       <ConfirmDialog
         open={confirmOpen}

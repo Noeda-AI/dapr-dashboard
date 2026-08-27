@@ -1,7 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { apiUrl, fetchJSON } from '../lib/api'
 import { useRefreshInterval, refetchMs } from '../lib/refresh'
-import type { StateDeleteResult, StateListResult, StateRecord } from '../types/state'
+import type {
+  CreateStatePayload,
+  StateDeleteResult,
+  StateListResult,
+  StateRecord,
+  StateWriteError,
+} from '../types/state'
 
 interface StateRecordsParams {
   appId?: string
@@ -85,16 +91,54 @@ async function postDelete(vars: { keys: string[]; store?: string }): Promise<Sta
   return res.json() as Promise<StateDeleteResult[]>
 }
 
+/**
+ * Everything derived from the keyspace after a write or a delete. The app
+ * dropdown is included because a new prefix must appear (and an emptied one
+ * disappear); with auto-refresh paused none of it would catch up on its own.
+ */
+function invalidateKeyspace(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: ['state-records'] })
+  qc.invalidateQueries({ queryKey: ['state-record'] })
+  qc.invalidateQueries({ queryKey: ['state-appids'] })
+}
+
 export function useDeleteStateRecords() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: postDelete,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['state-records'] })
-      qc.invalidateQueries({ queryKey: ['state-record'] })
-      // The app dropdown derives from the same keyspace, so it goes stale too;
-      // with auto-refresh paused it would never catch up on its own.
-      qc.invalidateQueries({ queryKey: ['state-appids'] })
-    },
+    onSuccess: () => invalidateKeyspace(qc),
+  })
+}
+
+async function postRecord(vars: CreateStatePayload & { store?: string }): Promise<{ key: string }> {
+  const { store, ...body } = vars
+  const qs = store ? `?store=${encodeURIComponent(store)}` : ''
+  const res = await fetch(apiUrl(`/state/record${qs}`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let msg = `request failed: ${res.status}`
+    try {
+      const data = (await res.json()) as { error?: unknown }
+      if (data && typeof data.error === 'string') msg = data.error
+    } catch {
+      // non-JSON body; keep status-only message
+    }
+    // The status rides along so the caller can tell an existing key (409, which
+    // an overwrite can resolve) from a store failure, which it cannot.
+    const err: StateWriteError = Object.assign(new Error(msg), { status: res.status })
+    throw err
+  }
+  return res.json() as Promise<{ key: string }>
+}
+
+/** Create one record via POST /api/state/record. */
+export function useCreateStateRecord() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: postRecord,
+    onSuccess: () => invalidateKeyspace(qc),
   })
 }

@@ -45,3 +45,20 @@ export interface StateDeleteResult {
   ok: boolean
   error?: string
 }
+
+/**
+ * One record write. `value` is stored verbatim — Dapr SDKs read values as JSON,
+ * but wrapping the text here would make a pasted JSON object unstorable.
+ * `overwrite` false makes the server refuse an existing key with a 409.
+ */
+export interface CreateStatePayload {
+  appId: string
+  key: string
+  value: string
+  overwrite: boolean
+}
+
+/** A failed write, carrying the HTTP status so 409 can be handled on its own. */
+export interface StateWriteError extends Error {
+  status?: number
+}

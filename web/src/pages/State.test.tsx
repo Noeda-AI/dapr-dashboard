@@ -316,6 +316,75 @@ describe('State page', () => {
   })
 })
 
+describe('State page record creation', () => {
+  beforeEach(() => window.localStorage.clear())
+
+  it('opens a dialog prefilled with the app filter and the store prefixes', async () => {
+    stubApi()
+    renderAt('/state?app=myapp')
+    await screen.findByText('order-42')
+
+    await userEvent.click(screen.getByRole('button', { name: /new record/i }))
+
+    expect(await screen.findByLabelText(/app id/i)).toHaveValue('myapp')
+    const listId = screen.getByLabelText(/app id/i).getAttribute('list')
+    const suggested = Array.from(
+      document.getElementById(listId as string)?.querySelectorAll('option') ?? [],
+    ).map((o) => o.value)
+    expect(suggested).toEqual(['myapp', 'other-app'])
+  })
+
+  it('writes to the selected store and refreshes the table', async () => {
+    let body: unknown
+    let url = ''
+    let created = false
+    const NEW_ITEM = { ...ITEM, key: 'myapp||cart-1', logicalKey: 'cart-1', preview: 'hello' }
+    server.use(
+      http.get('/api/statestores', () => HttpResponse.json(STORES)),
+      http.get('/api/state/appids', () => HttpResponse.json(['myapp'])),
+      http.get('/api/state', () =>
+        HttpResponse.json({ items: created ? [ITEM, NEW_ITEM] : [ITEM], nextToken: '' }),
+      ),
+      http.post('/api/state/record', async ({ request }) => {
+        url = request.url
+        body = await request.json()
+        created = true
+        return HttpResponse.json({ key: 'myapp||cart-1' }, { status: 201 })
+      }),
+    )
+    renderAt()
+    await screen.findByText('order-42')
+
+    await userEvent.click(screen.getByRole('button', { name: /new record/i }))
+    await userEvent.type(screen.getByLabelText(/app id/i), 'myapp')
+    await userEvent.type(screen.getByLabelText(/^key/i), 'cart-1')
+    await userEvent.type(screen.getByLabelText(/^value/i), 'hello')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText(/created/i)).toBeInTheDocument()
+    expect(url).toContain('store=s1')
+    expect(body).toEqual({ appId: 'myapp', key: 'cart-1', value: 'hello', overwrite: false })
+
+    await userEvent.click(screen.getByRole('button', { name: /close/i }))
+    // The listing is invalidated by the write, so the new row arrives without a
+    // manual refresh.
+    expect(await screen.findByText('cart-1')).toBeInTheDocument()
+  })
+
+  it('cannot be started while the store is unreadable', async () => {
+    server.use(
+      http.get('/api/statestores', () => HttpResponse.json(STORES)),
+      http.get('/api/state/appids', () => HttpResponse.json([])),
+      http.get('/api/state', () =>
+        HttpResponse.json({ error: 'could not connect to state store' }, { status: 503 }),
+      ),
+    )
+    renderAt()
+    await screen.findByTestId('load-error-banner')
+    expect(screen.getByRole('button', { name: /new record/i })).toBeDisabled()
+  })
+})
+
 describe('State page row expansion', () => {
   beforeEach(() => {
     window.localStorage.clear()
