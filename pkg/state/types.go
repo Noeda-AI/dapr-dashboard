@@ -23,6 +23,9 @@ var (
 	ErrNotBrowsable = errors.New("state store cannot be browsed")
 	// ErrNotFound: the requested key does not exist.
 	ErrNotFound = errors.New("record not found")
+	// ErrExists: the key a write would create is already present, and the
+	// write did not ask to overwrite it.
+	ErrExists = errors.New("record already exists")
 )
 
 // Kind is how a key was produced: app code, the workflow engine, or an actor.
@@ -110,7 +113,18 @@ type DeleteResult struct {
 	Error string `json:"error,omitempty"`
 }
 
-// Service is the read + delete surface the API needs.
+// SetRequest is one record write. Value is stored verbatim as bytes: Dapr
+// SDKs read values as JSON, but wrapping the text here would mean a pasted
+// JSON object could not be stored as one, so the encoding stays the caller's
+// choice. Overwrite false fails with ErrExists when the key already exists.
+type SetRequest struct {
+	AppID     string
+	Key       string
+	Value     string
+	Overwrite bool
+}
+
+// Service is the read + write + delete surface the API needs.
 type Service interface {
 	List(ctx context.Context, q ListQuery) (ListResult, error)
 	Record(ctx context.Context, key string) (Record, error)
@@ -119,4 +133,7 @@ type Service interface {
 	// record that filter hides.
 	AppIDs(ctx context.Context, includeInternal bool) ([]string, error)
 	Delete(ctx context.Context, keys []string) []DeleteResult
+	// Set writes one record at AppID||Key. It reports ErrExists rather than
+	// replacing a present key unless the request opts into overwriting.
+	Set(ctx context.Context, req SetRequest) error
 }

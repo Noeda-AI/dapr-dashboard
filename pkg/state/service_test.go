@@ -32,6 +32,8 @@ type fakeStore struct {
 	patterns []string
 	// deleteErr, when set for a key, makes Delete fail for it.
 	deleteErr map[string]error
+	// setErr, when non-nil, makes every Set fail.
+	setErr error
 }
 
 func newFakeStore() *fakeStore {
@@ -125,8 +127,14 @@ func (f *fakeStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-func (f *fakeStore) Set(_ context.Context, k string, v []byte) error { f.kv[k] = v; return nil }
-func (f *fakeStore) Close() error                                    { return nil }
+func (f *fakeStore) Set(_ context.Context, k string, v []byte) error {
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.kv[k] = v
+	return nil
+}
+func (f *fakeStore) Close() error { return nil }
 
 func TestServiceDegradation(t *testing.T) {
 	ctx := context.Background()
@@ -143,6 +151,7 @@ func TestServiceDegradation(t *testing.T) {
 		require.Len(t, res, 1)
 		require.False(t, res[0].OK)
 		require.Contains(t, res[0].Error, "no state store")
+		require.ErrorIs(t, svc.Set(ctx, SetRequest{AppID: "a", Key: "k", Value: "v"}), ErrNoStore)
 	})
 
 	t.Run("store without a RecordReader reports ErrNotBrowsable", func(t *testing.T) {
@@ -161,6 +170,60 @@ func TestServiceDegradation(t *testing.T) {
 		res := svc.Delete(ctx, []string{"a", "b"})
 		require.Len(t, res, 2)
 		require.False(t, res[0].OK)
+
+		require.ErrorIs(t, svc.Set(ctx, SetRequest{AppID: "a", Key: "k", Value: "v"}), ErrStoreUnreachable)
+	})
+}
+
+func TestServiceSet(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("composes appID||key and stores the value verbatim", func(t *testing.T) {
+		f := newFakeStore()
+		svc := New(f, f)
+
+		require.NoError(t, svc.Set(ctx, SetRequest{AppID: "order-app", Key: "cart-1", Value: "hello"}))
+
+		require.Equal(t, []byte("hello"), f.kv["order-app||cart-1"],
+			"the stored bytes are exactly the submitted text, with no JSON wrapping")
+	})
+
+	t.Run("refuses an existing key unless overwrite is set", func(t *testing.T) {
+		f := newFakeStore()
+		f.set("order-app||cart-1", "original")
+		svc := New(f, f)
+
+		err := svc.Set(ctx, SetRequest{AppID: "order-app", Key: "cart-1", Value: "replacement"})
+		require.ErrorIs(t, err, ErrExists)
+		require.Equal(t, []byte("original"), f.kv["order-app||cart-1"], "the existing value survives")
+	})
+
+	t.Run("overwrites an existing key when overwrite is set", func(t *testing.T) {
+		f := newFakeStore()
+		f.set("order-app||cart-1", "original")
+		svc := New(f, f)
+
+		require.NoError(t, svc.Set(ctx, SetRequest{
+			AppID: "order-app", Key: "cart-1", Value: "replacement", Overwrite: true,
+		}))
+		require.Equal(t, []byte("replacement"), f.kv["order-app||cart-1"])
+	})
+
+	t.Run("an empty value is a valid record, not a missing one", func(t *testing.T) {
+		f := newFakeStore()
+		svc := New(f, f)
+
+		require.NoError(t, svc.Set(ctx, SetRequest{AppID: "order-app", Key: "empty", Value: ""}))
+		require.Equal(t, []byte(""), f.kv["order-app||empty"])
+	})
+
+	t.Run("propagates a store write error", func(t *testing.T) {
+		f := newFakeStore()
+		f.setErr = errors.New("redis down")
+		svc := New(f, f)
+
+		err := svc.Set(ctx, SetRequest{AppID: "order-app", Key: "cart-1", Value: "v"})
+		require.ErrorContains(t, err, "redis down")
 	})
 }
 

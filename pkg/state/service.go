@@ -97,6 +97,30 @@ func (s *service) Delete(ctx context.Context, keys []string) []DeleteResult {
 	return out
 }
 
+// Set writes one record at AppID||Key — the same composition classify() splits
+// on read.
+//
+// The existence check is a read followed by a write, so a concurrent writer
+// could slip in between. For a local dashboard driving a local store that race
+// is not worth an ETag dance, and losing it only means an overwrite the user
+// was one click away from confirming anyway.
+func (s *service) Set(ctx context.Context, req SetRequest) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	key := ComposeKey(req.AppID, req.Key)
+	if !req.Overwrite {
+		existing, err := s.store.Get(ctx, key)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			return fmt.Errorf("%w: %s", ErrExists, key)
+		}
+	}
+	return s.store.Set(ctx, key, []byte(req.Value))
+}
+
 // unreachable is the Service for a known store whose backend could not be
 // opened. Every method fails with a store-specific ErrStoreUnreachable so the
 // API can surface an accurate "could not connect…" message. There is no
@@ -115,6 +139,7 @@ func (u unreachable) List(context.Context, ListQuery) (ListResult, error) {
 }
 func (u unreachable) Record(context.Context, string) (Record, error) { return Record{}, u.err() }
 func (u unreachable) AppIDs(context.Context, bool) ([]string, error) { return nil, u.err() }
+func (u unreachable) Set(context.Context, SetRequest) error          { return u.err() }
 func (u unreachable) Delete(_ context.Context, keys []string) []DeleteResult {
 	out := make([]DeleteResult, 0, len(keys))
 	for _, k := range keys {

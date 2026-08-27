@@ -10,6 +10,15 @@ import (
 // workflows and activities.
 const internalActorPrefix = "dapr.internal."
 
+// Delimiter is the separator Dapr puts between a key's app-id prefix and its
+// logical remainder. Exported so the API layer can validate a write's input
+// and report the key it composed without restating the rule.
+const Delimiter = statestore.KeyDelimiter
+
+// ComposeKey builds the stored key for one app-id prefix and logical key. It
+// is the inverse of classify for the two-segment case.
+func ComposeKey(appID, key string) string { return appID + Delimiter + key }
+
 // keyParts is a classified state key.
 type keyParts struct {
 	AppID      string
