@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/diagridio/dev-dashboard/pkg/state"
 	"github.com/go-chi/chi/v5"
@@ -19,6 +20,16 @@ type StateBackend interface {
 // deleteBody is the request body for the bulk delete endpoint.
 type deleteBody struct {
 	Keys []string `json:"keys"`
+}
+
+// createBody is the request body for the record create endpoint. Value is
+// stored verbatim; an empty string is a valid record, so it is not optional in
+// the sense of being defaulted.
+type createBody struct {
+	AppID     string `json:"appId"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Overwrite bool   `json:"overwrite"`
 }
 
 func stateRouter(backend StateBackend) http.Handler {
@@ -69,6 +80,43 @@ func stateRouter(backend StateBackend) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, rec)
+	})
+
+	// POST on the same path as the record read: GET /record returns one record,
+	// POST /record creates one. The key is composed here from appId and key
+	// rather than accepted whole, so a caller cannot write a three-segment key
+	// that the listing would classify as actor state.
+	r.Post("/record", func(w http.ResponseWriter, req *http.Request) {
+		svc, ok := svcFor(w, req)
+		if !ok {
+			return
+		}
+		var body createBody
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+			return
+		}
+		if body.AppID == "" || body.Key == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "appId and key are required"})
+			return
+		}
+		if strings.Contains(body.AppID, state.Delimiter) || strings.Contains(body.Key, state.Delimiter) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": `appId and key cannot contain "||"`,
+			})
+			return
+		}
+		err := svc.Set(req.Context(), state.SetRequest{
+			AppID:     body.AppID,
+			Key:       body.Key,
+			Value:     body.Value,
+			Overwrite: body.Overwrite,
+		})
+		if err != nil {
+			writeStateErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]string{"key": state.ComposeKey(body.AppID, body.Key)})
 	})
 
 	r.Get("/appids", func(w http.ResponseWriter, req *http.Request) {
@@ -124,6 +172,8 @@ func writeStateErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 	case errors.Is(err, state.ErrNotBrowsable):
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "this state store cannot be browsed"})
+	case errors.Is(err, state.ErrExists):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 	case errors.Is(err, state.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "record not found"})
 	default:

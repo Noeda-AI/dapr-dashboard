@@ -27,6 +27,8 @@ type stubStateService struct {
 	appIDs      []string
 	appIDsErr   error
 	deletes     []state.DeleteResult
+	lastSet     state.SetRequest
+	setErr      error
 
 	lastAppIDsInternal bool
 }
@@ -46,6 +48,10 @@ func (s *stubStateService) AppIDs(_ context.Context, includeInternal bool) ([]st
 func (s *stubStateService) Delete(_ context.Context, keys []string) []state.DeleteResult {
 	s.lastDeletes = keys
 	return s.deletes
+}
+func (s *stubStateService) Set(_ context.Context, req state.SetRequest) error {
+	s.lastSet = req
+	return s.setErr
 }
 
 // stubStateBackend serves one service, or reports the store unknown.
@@ -226,5 +232,82 @@ func TestStateDelete(t *testing.T) {
 		w := doState(t, b, http.MethodPost, "/delete", `{"keys":[]}`)
 		require.Equal(t, http.StatusBadRequest, w.Code)
 		require.Contains(t, w.Body.String(), "keys is required")
+	})
+}
+
+func TestStateCreateRecord(t *testing.T) {
+	svc := &stubStateService{}
+	b := stubStateBackend{svc: svc}
+
+	w := doState(t, b, http.MethodPost, "/record",
+		`{"appId":"order-app","key":"cart-1","value":"hello"}`)
+	require.Equal(t, http.StatusCreated, w.Code)
+	require.Equal(t, state.SetRequest{AppID: "order-app", Key: "cart-1", Value: "hello"}, svc.lastSet)
+	// The response names the composed key so the SPA can report what it created
+	// without duplicating the delimiter rule.
+	require.JSONEq(t, `{"key":"order-app||cart-1"}`, w.Body.String())
+
+	t.Run("overwrite is forwarded", func(t *testing.T) {
+		w := doState(t, b, http.MethodPost, "/record",
+			`{"appId":"a","key":"k","value":"v","overwrite":true}`)
+		require.Equal(t, http.StatusCreated, w.Code)
+		require.True(t, svc.lastSet.Overwrite)
+	})
+
+	t.Run("an empty value is accepted", func(t *testing.T) {
+		w := doState(t, b, http.MethodPost, "/record", `{"appId":"a","key":"k","value":""}`)
+		require.Equal(t, http.StatusCreated, w.Code)
+		require.Equal(t, "", svc.lastSet.Value)
+	})
+
+	t.Run("invalid JSON is a 400", func(t *testing.T) {
+		w := doState(t, b, http.MethodPost, "/record", `{`)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("a missing appId or key is a 400", func(t *testing.T) {
+		for _, body := range []string{
+			`{"appId":"","key":"k","value":"v"}`,
+			`{"appId":"a","key":"","value":"v"}`,
+		} {
+			w := doState(t, b, http.MethodPost, "/record", body)
+			require.Equal(t, http.StatusBadRequest, w.Code, body)
+			require.Contains(t, w.Body.String(), "required")
+		}
+	})
+
+	// A typed delimiter would compose a key that classify() reads as actor
+	// state, so the new record would hide behind "Show internal keys".
+	t.Run("a delimiter in appId or key is a 400", func(t *testing.T) {
+		for _, body := range []string{
+			`{"appId":"a||b","key":"k","value":"v"}`,
+			`{"appId":"a","key":"k||sub","value":"v"}`,
+		} {
+			w := doState(t, b, http.MethodPost, "/record", body)
+			require.Equal(t, http.StatusBadRequest, w.Code, body)
+			require.Contains(t, w.Body.String(), "||")
+		}
+	})
+
+	t.Run("an existing key is a 409", func(t *testing.T) {
+		ex := &stubStateService{setErr: state.ErrExists}
+		w := doState(t, stubStateBackend{svc: ex}, http.MethodPost, "/record",
+			`{"appId":"a","key":"k","value":"v"}`)
+		require.Equal(t, http.StatusConflict, w.Code)
+		require.Contains(t, w.Body.String(), "already exists")
+	})
+
+	t.Run("an unreachable store is a 503", func(t *testing.T) {
+		un := &stubStateService{setErr: state.ErrStoreUnreachable}
+		w := doState(t, stubStateBackend{svc: un}, http.MethodPost, "/record",
+			`{"appId":"a","key":"k","value":"v"}`)
+		require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	})
+
+	t.Run("an unknown store is a 404", func(t *testing.T) {
+		w := doState(t, stubStateBackend{unknown: true}, http.MethodPost, "/record",
+			`{"appId":"a","key":"k","value":"v"}`)
+		require.Equal(t, http.StatusNotFound, w.Code)
+		require.Contains(t, w.Body.String(), "unknown state store")
 	})
 }
