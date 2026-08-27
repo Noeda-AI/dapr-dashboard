@@ -12,6 +12,8 @@ import { DateTimeCell } from '../components/DateTimeCell'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { dedupeStores } from '../lib/dedupeStores'
 import { highlightJson } from '../lib/json-highlight'
+import { copyText } from '../lib/clipboard'
+import { useToast } from '../lib/toast'
 import type { StateStore } from '../types/workflow'
 import type { StateItem } from '../types/state'
 
@@ -31,6 +33,7 @@ function formatSize(bytes: number): string {
  */
 function RecordPanel({ recordKey, store }: { recordKey: string; store?: string }) {
   const { data, isLoading, isError } = useStateRecord(recordKey, store)
+  const { toast, toastNode } = useToast()
 
   if (isLoading) {
     return (
@@ -47,26 +50,35 @@ function RecordPanel({ recordKey, store }: { recordKey: string; store?: string }
     )
   }
   return (
-    <div data-testid="record-panel" style={{ padding: 12 }}>
-      <div className="muted mono" style={{ marginBottom: 8, wordBreak: 'break-all' }}>
-        {data.key}
+    <div className="panel" data-testid="record-panel">
+      {/* .panel > .ph already lays out a header row and pushes .copybtn right. */}
+      <div className="ph">
+        <span className="mono" style={{ minWidth: 0, wordBreak: 'break-all' }}>
+          {data.key}
+        </span>
+        <button
+          type="button"
+          className="copybtn"
+          onClick={() => {
+            copyText(data.value)
+            toast.show('Value copied')
+          }}
+        >
+          ⧉ Copy
+        </button>
       </div>
-      <pre className="json" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-        {highlightJson(data.value)}
-      </pre>
-      <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-        {formatSize(data.size)} · version {data.etag || '—'} · {data.encoding}
-        {data.contentType ? ` · ${data.contentType}` : ''}
-        {data.truncated ? ' · truncated at 1 MB' : ''}
+      <div style={{ padding: 12 }}>
+        <pre className="json" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {highlightJson(data.value)}
+        </pre>
+        <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+          {formatSize(data.size)} · version {data.etag || <span className="faint">—</span>} ·{' '}
+          {data.encoding}
+          {data.contentType ? ` · ${data.contentType}` : ''}
+          {data.truncated ? ' · truncated at 1 MB' : ''}
+        </div>
       </div>
-      <button
-        type="button"
-        className="btn ghost"
-        style={{ marginTop: 8 }}
-        onClick={() => void navigator.clipboard?.writeText(data.value)}
-      >
-        Copy value
-      </button>
+      {toastNode}
     </div>
   )
 }
@@ -489,7 +501,7 @@ export function State() {
                             </span>
                           )}
                         </td>
-                        <td>{rec.appId || '—'}</td>
+                        <td>{rec.appId || <span className="faint">—</span>}</td>
                         <td className="mono">
                           {rec.preview}
                           {rec.encoding === 'base64' && (
@@ -503,7 +515,7 @@ export function State() {
                           className="mono tabnum"
                           title="Backend revision counter (etag) — it changes on every write, but is not a timestamp"
                         >
-                          {rec.etag || '—'}
+                          {rec.etag || <span className="faint">—</span>}
                         </td>
                         <td className="muted mono tabnum dt">
                           <DateTimeCell ts={rec.ttlExpiresAt} />
