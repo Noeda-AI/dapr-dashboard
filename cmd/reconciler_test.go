@@ -384,10 +384,10 @@ func TestReconciler_BaseCtxCancelAbortsPreWarm(t *testing.T) {
 
 // TestComponentFor_WarnsOnUnresolvedSecrets verifies issue 3: componentFor must
 // log a warning when secretKeyRef metadata cannot be resolved, instead of
-// silently discarding the unresolved keys. The diagnostic text now comes from
-// pkg/secrets (resolveComponentSecrets) rather than the deleted
-// statestore.ResolveSecrets, so it names the field and the pkg/secrets status
-// instead of the old "unresolved secretKeyRef metadata" wording.
+// silently discarding the unresolved keys. The diagnostic text now comes
+// from pkg/secrets (via resolveComponentSecrets) rather than the old,
+// now-removed statestore helper, so it names the field and the pkg/secrets
+// status instead of the old "unresolved secretKeyRef metadata" wording.
 func TestComponentFor_WarnsOnUnresolvedSecrets(t *testing.T) {
 	dir := t.TempDir()
 	home := t.TempDir()
