@@ -1,0 +1,88 @@
+//go:build unit
+
+package secrets
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+const envStoreWithPrefixYAML = `kind: Component
+metadata:
+  name: envsecrets
+spec:
+  type: secretstores.local.env
+  metadata:
+  - name: prefix
+    value: MYAPP_
+`
+
+func TestResolveEnvStoreAppliesPrefix(t *testing.T) {
+	t.Setenv("MYAPP_REDIS_PASSWORD", "from-env")
+	svc, _ := writeStore(t, envStoreWithPrefixYAML, "")
+	ctx := context.Background()
+
+	// The ref names the secret WITHOUT the prefix; contrib prepends it.
+	got := svc.Resolve(ctx, "envsecrets", Ref{Kind: "secretKeyRef", Name: "REDIS_PASSWORD"})
+	require.Equal(t, StatusResolved, got.Status)
+	require.Equal(t, "from-env", got.Value)
+	require.Contains(t, got.Detail, "MYAPP_REDIS_PASSWORD")
+
+	// An unset variable is empty, not resolved.
+	got = svc.Resolve(ctx, "envsecrets", Ref{Kind: "secretKeyRef", Name: "NOT_SET"})
+	require.Equal(t, StatusEmptyValue, got.Status)
+}
+
+func TestResolveEnvStoreDenylist(t *testing.T) {
+	t.Setenv("DAPR_SECRET", "nope")
+	svc, _ := writeStore(t, `kind: Component
+metadata:
+  name: envsecrets
+spec:
+  type: secretstores.local.env
+`, "")
+	got := svc.Resolve(context.Background(), "envsecrets", Ref{Kind: "secretKeyRef", Name: "DAPR_SECRET"})
+	require.NotEqual(t, StatusResolved, got.Status, "DAPR_* must never be readable")
+}
+
+func TestResolveEnvRef(t *testing.T) {
+	t.Setenv("MY_TOKEN", "tok")
+	svc, _ := writeStore(t, envStoreWithPrefixYAML, "")
+	ctx := context.Background()
+
+	// envRef bypasses the secret store entirely: no prefix, no store lookup.
+	got := svc.Resolve(ctx, "", Ref{Kind: "envRef", Name: "MY_TOKEN"})
+	require.Equal(t, StatusResolved, got.Status)
+	require.Equal(t, "tok", got.Value)
+	require.Contains(t, got.Detail, "MY_TOKEN")
+
+	require.Equal(t, StatusEmptyValue, svc.Resolve(ctx, "", Ref{Kind: "envRef", Name: "UNSET_VAR"}).Status)
+}
+
+func TestEnvVarAllowed(t *testing.T) {
+	require.True(t, EnvVarAllowed("MY_TOKEN"))
+	require.False(t, EnvVarAllowed(""))
+	require.False(t, EnvVarAllowed("APP_API_TOKEN"))
+	require.False(t, EnvVarAllowed("app_api_token"), "the check is case-insensitive")
+	require.False(t, EnvVarAllowed("DAPR_API_TOKEN"))
+	require.False(t, EnvVarAllowed("has space"))
+}
+
+func TestResolveEnvRefForbidden(t *testing.T) {
+	t.Setenv("DAPR_API_TOKEN", "nope")
+	svc, _ := writeStore(t, envStoreWithPrefixYAML, "")
+	got := svc.Resolve(context.Background(), "", Ref{Kind: "envRef", Name: "DAPR_API_TOKEN"})
+	require.Equal(t, StatusForbidden, got.Status)
+	require.Empty(t, got.Value)
+}
+
+func TestEnvKeysAllowlist(t *testing.T) {
+	// DAPR_ENV_KEYS is injector-set and Kubernetes-only, but Dapr honours it,
+	// so mirroring it keeps behaviour identical wherever it happens to be set.
+	t.Setenv("DAPR_ENV_KEYS", "ALLOWED_ONE ALLOWED_TWO")
+	require.True(t, EnvVarAllowed("ALLOWED_ONE"))
+	require.True(t, EnvVarAllowed("ALLOWED_TWO"))
+	require.False(t, EnvVarAllowed("OTHER"))
+}
