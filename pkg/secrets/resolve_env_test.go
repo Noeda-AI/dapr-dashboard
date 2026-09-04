@@ -85,4 +85,5 @@ func TestEnvKeysAllowlist(t *testing.T) {
 	require.True(t, EnvVarAllowed("ALLOWED_ONE"))
 	require.True(t, EnvVarAllowed("ALLOWED_TWO"))
 	require.False(t, EnvVarAllowed("OTHER"))
+	require.True(t, EnvVarAllowed("allowed_one"), "allowlist matching is case-insensitive, as in Dapr")
 }

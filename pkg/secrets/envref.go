@@ -27,7 +27,7 @@ func EnvVarAllowed(key string) bool {
 		return true
 	}
 	for _, allowed := range strings.Split(allowlist, " ") {
-		if allowed == key {
+		if allowed == upper {
 			return true
 		}
 	}
