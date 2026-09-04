@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function SecretRefsPanel({ resourceId, refs, componentType }: Props) {
-  const { values, reveal, hide } = useSecretReveal(resourceId)
+  const { values, errors, reveal, hide } = useSecretReveal(resourceId)
   const revealAllowed = getCapabilities().secretReveal !== false
   const store = refs.find((r) => r.store)?.store
 
@@ -31,6 +31,7 @@ export function SecretRefsPanel({ resourceId, refs, componentType }: Props) {
       <div className="kv">
         {refs.map((r) => {
           const shown = values[r.field]
+          const error = errors[r.field]
           const isResolved = r.status === 'resolved'
           return (
             <Fragment key={r.field}>
@@ -57,6 +58,7 @@ export function SecretRefsPanel({ resourceId, refs, componentType }: Props) {
                     >
                       {shown ? 'Hide' : 'Reveal'}
                     </button>
+                    {error && <span className="field-err">Could not reveal: {error}</span>}
                   </>
                 )}
                 {!isResolved && r.detail && (

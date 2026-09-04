@@ -82,4 +82,30 @@ describe('SecretRefsPanel', () => {
     renderPanel([resolved])
     expect(screen.getByRole('button', { name: /reveal redisPassword/i })).toBeDisabled()
   })
+
+  it('shows an inline error and no value when reveal comes back 403 (served off-host)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 })))
+    const user = userEvent.setup()
+    renderPanel([resolved])
+
+    await user.click(screen.getByRole('button', { name: /reveal redisPassword/i }))
+
+    await waitFor(() => expect(screen.getByText(/could not reveal/i)).toBeInTheDocument())
+    expect(screen.getByText(/off-host/i)).toBeInTheDocument()
+    expect(screen.getByText('••••••••')).toBeInTheDocument()
+    expect(screen.queryByText('s3cr3t')).not.toBeInTheDocument()
+  })
+
+  it('shows an inline error and no value when reveal comes back 404 (stale resolution)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'not found' }), { status: 404 })))
+    const user = userEvent.setup()
+    renderPanel([resolved])
+
+    await user.click(screen.getByRole('button', { name: /reveal redisPassword/i }))
+
+    await waitFor(() => expect(screen.getByText(/could not reveal/i)).toBeInTheDocument())
+    expect(screen.getByText(/no resolved value/i)).toBeInTheDocument()
+    expect(screen.getByText('••••••••')).toBeInTheDocument()
+    expect(screen.queryByText('s3cr3t')).not.toBeInTheDocument()
+  })
 })
