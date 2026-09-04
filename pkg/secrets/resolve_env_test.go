@@ -35,6 +35,12 @@ func TestResolveEnvStoreAppliesPrefix(t *testing.T) {
 	require.Equal(t, StatusEmptyValue, got.Status)
 }
 
+// TestResolveEnvStoreDenylist covers finding 4 of the whole-branch review:
+// contrib's local/env store never errors on a denied key — GetSecret just
+// returns an empty value — so a naive resolver would report StatusEmptyValue
+// for DAPR_SECRET, sending the user hunting for an unset variable that Dapr
+// will never read regardless of its value. The pre-check must catch this
+// before calling GetSecret and report StatusForbidden instead.
 func TestResolveEnvStoreDenylist(t *testing.T) {
 	t.Setenv("DAPR_SECRET", "nope")
 	svc, _ := writeStore(t, `kind: Component
@@ -44,7 +50,47 @@ spec:
   type: secretstores.local.env
 `, "")
 	got := svc.Resolve(context.Background(), "envsecrets", Ref{Kind: "secretKeyRef", Name: "DAPR_SECRET"})
-	require.NotEqual(t, StatusResolved, got.Status, "DAPR_* must never be readable")
+	require.Equal(t, StatusForbidden, got.Status, "DAPR_* must be reported forbidden, not empty-value")
+	require.Contains(t, got.Detail, "DAPR_SECRET")
+}
+
+// TestResolveEnvStoreDenylistAppliesPrefix verifies the denylist check is
+// applied to the prefix-qualified name, mirroring contrib's own
+// GetSecret (name := prefix + req.Name; isKeyAllowed(name)) — a ref whose
+// bare name looks harmless can still resolve to a denied full env var name
+// once the store's prefix is applied.
+func TestResolveEnvStoreDenylistAppliesPrefix(t *testing.T) {
+	t.Setenv("DAPR_API_TOKEN", "nope")
+	svc, _ := writeStore(t, `kind: Component
+metadata:
+  name: envsecrets
+spec:
+  type: secretstores.local.env
+  metadata:
+  - name: prefix
+    value: DAPR_
+`, "")
+	got := svc.Resolve(context.Background(), "envsecrets", Ref{Kind: "secretKeyRef", Name: "API_TOKEN"})
+	require.Equal(t, StatusForbidden, got.Status)
+}
+
+// TestResolveEnvStoreDoesNotApplySpaceRule pins the "important subtlety" from
+// finding 4: contrib's local/env isKeyAllowed only denies APP_API_TOKEN and
+// DAPR_-prefixed names — no space rule, unlike EnvVarAllowed (the runtime's
+// envRef path). Resolving via secretKeyRef against a local.env store must
+// use contrib's own rule, not EnvVarAllowed, or this would over-deny a key
+// contrib would happily read.
+func TestResolveEnvStoreDoesNotApplySpaceRule(t *testing.T) {
+	t.Setenv("HAS SPACE", "value")
+	svc, _ := writeStore(t, `kind: Component
+metadata:
+  name: envsecrets
+spec:
+  type: secretstores.local.env
+`, "")
+	got := svc.Resolve(context.Background(), "envsecrets", Ref{Kind: "secretKeyRef", Name: "HAS SPACE"})
+	require.Equal(t, StatusResolved, got.Status)
+	require.Equal(t, "value", got.Value)
 }
 
 func TestResolveEnvRef(t *testing.T) {

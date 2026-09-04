@@ -176,6 +176,29 @@ func (s *service) open(st Store) *entry {
 	return e
 }
 
+// contribEnvKeyDenied mirrors components-contrib's local/env
+// envSecretStore.isKeyAllowed (secretstores/local/env/env.go) exactly: a key
+// (already prefix-applied) is denied when it equals APP_API_TOKEN or starts
+// with DAPR_, case-insensitive. contrib's GetSecret never errors on a denied
+// key — it silently returns an empty value — so without this pre-check a
+// secretKeyRef naming a denied key against a local.env store lands on the
+// val == "" branch below and reports StatusEmptyValue, sending the user to
+// look for an unset variable Dapr will never read regardless of its value.
+//
+// This is DELIBERATELY a separate rule from EnvVarAllowed (envref.go), which
+// backs the runtime's envRef path and additionally denies names containing a
+// space and applies the DAPR_ENV_KEYS allowlist. Those two extra rules are
+// not part of contrib's local.env store at all; reusing EnvVarAllowed here
+// would make this store resolution stricter than contrib's own store and
+// could report forbidden for a key contrib would happily read.
+func contribEnvKeyDenied(key string) bool {
+	upper := strings.ToUpper(key)
+	if upper == "APP_API_TOKEN" {
+		return true
+	}
+	return strings.HasPrefix(upper, "DAPR_")
+}
+
 // detailFor describes where a store looks things up, for the UI.
 func detailFor(st Store, e *entry, ref Ref) string {
 	switch st.Type {
@@ -203,6 +226,13 @@ func (s *service) Resolve(ctx context.Context, storeName string, ref Ref) Result
 	if !st.Supported() {
 		return Result{Status: StatusStoreUnsupported,
 			Detail: fmt.Sprintf("%s is not a local secret store; the dashboard does not read it", st.Type)}
+	}
+	if st.Type == TypeEnv {
+		fullName := st.Properties["prefix"] + ref.Name
+		if contribEnvKeyDenied(fullName) {
+			return Result{Status: StatusForbidden,
+				Detail: "env var " + fullName + " is on components-contrib's local.env store denylist (DAPR_*, APP_API_TOKEN)"}
+		}
 	}
 	e := s.open(st)
 	detail := detailFor(st, e, ref)
