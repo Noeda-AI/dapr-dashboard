@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"sort"
+	"strconv"
 
 	"github.com/diagridio/dev-dashboard/pkg/secrets"
 )
@@ -23,14 +24,16 @@ type SecretRefStatus struct {
 // SecretStoreInfo describes a local secret-store component for its detail pane.
 // Keys are names only.
 type SecretStoreInfo struct {
-	Name       string   `json:"name"`
-	Type       string   `json:"type"`
-	File       string   `json:"file,omitempty"`
-	Prefix     string   `json:"prefix,omitempty"`
-	Keys       []string `json:"keys,omitempty"`
-	KeysCapped bool     `json:"keysCapped,omitempty"`
-	InitErr    string   `json:"initErr,omitempty"`
-	UsedBy     []string `json:"usedBy,omitempty"`
+	Name            string   `json:"name"`
+	Type            string   `json:"type"`
+	File            string   `json:"file,omitempty"`
+	Prefix          string   `json:"prefix,omitempty"`
+	NestedSeparator string   `json:"nestedSeparator,omitempty"`
+	MultiValued     bool     `json:"multiValued,omitempty"`
+	Keys            []string `json:"keys,omitempty"`
+	KeysCapped      bool     `json:"keysCapped,omitempty"`
+	InitErr         string   `json:"initErr,omitempty"`
+	UsedBy          []string `json:"usedBy,omitempty"`
 }
 
 // secretRefsFor resolves every reference declared in doc. Returns nil when the
@@ -150,6 +153,14 @@ func (s *service) secretStoreInfoFor(ctx context.Context, r Resource) *SecretSto
 	info := &SecretStoreInfo{
 		Name: st.Name, Type: st.Type, File: st.File,
 		Prefix: st.Properties["prefix"], InitErr: st.InitErr,
+	}
+	if st.Type == secrets.TypeFile {
+		info.NestedSeparator = st.Properties["nestedSeparator"]
+		if info.NestedSeparator == "" {
+			// contrib's local/file store defaults to ":" when unset.
+			info.NestedSeparator = ":"
+		}
+		info.MultiValued, _ = strconv.ParseBool(st.Properties["multiValued"])
 	}
 	info.Keys, info.KeysCapped, _ = s.secrets.KeyNames(ctx, r.Name)
 	info.UsedBy = s.usedBy(ctx, r.Name)

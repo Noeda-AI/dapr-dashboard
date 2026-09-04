@@ -110,6 +110,65 @@ func TestGetPopulatesSecretStoreInfo(t *testing.T) {
 	require.Equal(t, []string{"redis:password"}, got.SecretStore.Keys)
 	require.Equal(t, []string{"statestore"}, got.SecretStore.UsedBy)
 	require.Empty(t, got.SecretStore.InitErr)
+	// contrib defaults nestedSeparator to ":" when the property is absent.
+	require.Equal(t, ":", got.SecretStore.NestedSeparator)
+	require.False(t, got.SecretStore.MultiValued)
+}
+
+const storeCompCustomSepYAML = `apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: customsecretstore
+spec:
+  type: secretstores.local.file
+  version: v1
+  metadata:
+  - name: secretsFile
+    value: secrets.json
+  - name: nestedSeparator
+    value: "|"
+  - name: multiValued
+    value: "true"
+`
+
+func TestSecretStoreInfoCarriesCustomSeparatorAndMultiValued(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "store.yaml"), []byte(storeCompCustomSepYAML), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "secrets.json"),
+		[]byte(`{"redis":{"password":"s3cr3t"}}`), 0o600))
+	paths := func() []string { return []string{dir} }
+	svc := New(paths, nil, WithSecrets(secrets.New(paths)))
+
+	got, err := svc.Get(context.Background(), KindComponent, "customsecretstore")
+	require.NoError(t, err)
+	require.NotNil(t, got.SecretStore)
+	require.Equal(t, "|", got.SecretStore.NestedSeparator)
+	require.True(t, got.SecretStore.MultiValued)
+}
+
+const envStoreCompYAML = `apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: envsecrets
+spec:
+  type: secretstores.local.env
+  version: v1
+  metadata:
+  - name: prefix
+    value: MYAPP_
+`
+
+func TestEnvStoreInfoHasNoNestedSeparatorFields(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "store.yaml"), []byte(envStoreCompYAML), 0o600))
+	paths := func() []string { return []string{dir} }
+	svc := New(paths, nil, WithSecrets(secrets.New(paths)))
+
+	got, err := svc.Get(context.Background(), KindComponent, "envsecrets")
+	require.NoError(t, err)
+	require.NotNil(t, got.SecretStore)
+	require.Empty(t, got.SecretStore.NestedSeparator)
+	require.False(t, got.SecretStore.MultiValued)
 }
 
 func TestNonSecretStoreHasNoStoreInfo(t *testing.T) {

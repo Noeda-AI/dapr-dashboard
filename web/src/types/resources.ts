@@ -51,6 +51,8 @@ export interface SecretStoreInfo {
   type: string
   file?: string
   prefix?: string
+  nestedSeparator?: string
+  multiValued?: boolean
   keys?: string[]
   keysCapped?: boolean
   initErr?: string

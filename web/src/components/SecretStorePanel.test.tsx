@@ -44,4 +44,29 @@ describe('SecretStorePanel', () => {
     }} />)
     expect(screen.getByText(/more/i)).toBeInTheDocument()
   })
+
+  it('shows the nested separator and multi-valued rows, with a caption using the actual separator', () => {
+    wrap(<SecretStorePanel info={{
+      name: 'localsecretstore', type: 'secretstores.local.file',
+      file: '/tmp/secrets.json', nestedSeparator: '|', multiValued: false,
+      keys: ['redis|password'],
+    }} />)
+    // the separator value itself, in its own row
+    expect(screen.getByText('|')).toBeInTheDocument()
+    // multiValued is false, rendered as its own row
+    expect(screen.getByText('No')).toBeInTheDocument()
+    // the flattening caption must be built from the ACTUAL separator, not a hardcoded ":"
+    expect(screen.getByText(/flattened with `\|`/)).toBeInTheDocument()
+  })
+
+  it('does not claim flattening applies when multiValued is true; states the multiValued behaviour instead', () => {
+    wrap(<SecretStorePanel info={{
+      name: 's', type: 'secretstores.local.file', file: '/tmp/s.json',
+      nestedSeparator: ':', multiValued: true, keys: ['redis'],
+    }} />)
+    expect(screen.getByText('Yes')).toBeInTheDocument()
+    // must NOT contradict the store's actual mode by claiming keys are flattened
+    expect(screen.queryByText(/flattened/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/each top-level key is itself a secret/i)).toBeInTheDocument()
+  })
 })

@@ -266,6 +266,32 @@ describe('ResourceList kind=component', () => {
     expect(await screen.findByLabelText(/statestore has an unresolved secret/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/pubsub has an unresolved secret/i)).not.toBeInTheDocument()
   })
+
+  it('does not mark a component whose secret references all resolved', async () => {
+    const ORDER = {
+      id: 'ord000ord000',
+      name: 'order',
+      kind: 'component',
+      type: 'state.redis',
+      path: '/tmp/order.yaml',
+      secretRefs: [{ field: 'redisPassword', kind: 'secretKeyRef', status: 'resolved' }],
+    }
+    server.use(
+      http.get('/api/resources', ({ request }) => {
+        const url = new URL(request.url)
+        if (url.searchParams.get('kind') === 'component') {
+          return HttpResponse.json([ORDER])
+        }
+        return HttpResponse.json([])
+      }),
+      http.get('/api/resources/component/:idOrName', () =>
+        HttpResponse.json({ ...ORDER, raw: 'kind: Component\n' }),
+      ),
+    )
+    renderComponents()
+    await screen.findByText('order')
+    expect(screen.queryByLabelText(/order has an unresolved secret/i)).not.toBeInTheDocument()
+  })
 })
 
 // ---- Configurations ----

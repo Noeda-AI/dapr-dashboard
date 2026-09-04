@@ -27,8 +27,23 @@ export function SecretStorePanel({ info }: { info: SecretStoreInfo }) {
             <div className="vv"><span className="field-err">{info.initErr}</span></div>
           </>
         )}
+        {!isEnv && info.nestedSeparator && (
+          <>
+            <div className="kk">Nested separator</div>
+            <div className="vv mono">{info.nestedSeparator}</div>
+            <div className="kk">Multi-valued</div>
+            <div className="vv">{info.multiValued ? 'Yes' : 'No'}</div>
+          </>
+        )}
         <div className="kk">Keys</div>
         <div className="vv" style={{ flexWrap: 'wrap', gap: 6 }}>
+          {!isEnv && info.nestedSeparator && (
+            <span style={{ width: '100%', color: 'var(--muted)', fontSize: 12 }}>
+              {info.multiValued
+                ? "Each top-level key is itself a secret; use secretKeyRef's key field to select one of its own keys."
+                : `Nested JSON keys are flattened with \`${info.nestedSeparator}\` — reference the full path (e.g. \`redis${info.nestedSeparator}password\`), not the parent key.`}
+            </span>
+          )}
           {noPrefix ? (
             <span style={{ color: 'var(--muted)', fontSize: 12 }}>
               Set a prefix on this store to list its keys — without one, every environment
