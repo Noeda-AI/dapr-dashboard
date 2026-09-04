@@ -52,6 +52,14 @@ type Resource struct {
 	Path     string   `json:"path"`
 	Raw      string   `json:"raw,omitempty"`
 	LoadedBy []string `json:"loadedBy,omitempty"`
+
+	SecretRefs  []SecretRefStatus `json:"secretRefs,omitempty"`
+	SecretStore *SecretStoreInfo  `json:"secretStore,omitempty"`
+
+	// doc is the single YAML document this resource was parsed from. It is
+	// unexported, so it never reaches the API; secret-reference parsing reads
+	// it instead of re-walking the file.
+	doc []byte
 }
 
 // resourceID derives a stable, URL-safe id for a resource — the entryID
@@ -92,7 +100,7 @@ type service struct {
 type Option func(*service)
 
 // WithSecrets attaches a secret resolver so component resources carry secret
-// reference status. Implemented in the next task.
+// reference status. Without it, SecretRefs and SecretStore stay empty.
 func WithSecrets(svc secrets.Service) Option {
 	return func(s *service) { s.secrets = svc }
 }
@@ -149,6 +157,7 @@ func FromRaw(displayPath string, content []byte) []Resource {
 			Version: rr.Spec.Version,
 			Path:    displayPath,
 			Raw:     string(content),
+			doc:     doc,
 		})
 	}
 	return out
@@ -197,6 +206,7 @@ func (s *service) scan(kind Kind) ([]Resource, error) {
 					Type:    rr.Spec.Type,
 					Version: rr.Spec.Version,
 					Path:    absPath,
+					doc:     doc,
 				})
 			}
 			return nil
@@ -242,7 +252,23 @@ func (s *service) List(ctx context.Context, kind Kind) ([]Resource, error) {
 		}
 		return out[i].Path < out[j].Path
 	})
+	for i := range out {
+		if out[i].Kind == KindComponent {
+			out[i].SecretRefs = s.secretRefsFor(ctx, out[i].doc)
+		}
+	}
 	return out, nil
+}
+
+// enrich attaches secret-reference status and, for secret-store components,
+// the store detail payload.
+func (s *service) enrich(ctx context.Context, r Resource) Resource {
+	if r.Kind != KindComponent {
+		return r
+	}
+	r.SecretRefs = s.secretRefsFor(ctx, r.doc)
+	r.SecretStore = s.secretStoreInfoFor(ctx, r)
+	return r
 }
 
 // Get returns the resource matching idOrName (ID first, then first name
@@ -260,7 +286,7 @@ func (s *service) Get(ctx context.Context, kind Kind, idOrName string) (Resource
 			return Resource{}, err
 		}
 		r.Raw = string(data)
-		return r, nil
+		return s.enrich(ctx, r), nil
 	}
 	for _, r := range scanned {
 		if r.ID == idOrName {
@@ -269,7 +295,7 @@ func (s *service) Get(ctx context.Context, kind Kind, idOrName string) (Resource
 	}
 	for _, r := range extras {
 		if r.ID == idOrName {
-			return r, nil
+			return s.enrich(ctx, r), nil
 		}
 	}
 	for _, r := range scanned {
@@ -279,7 +305,7 @@ func (s *service) Get(ctx context.Context, kind Kind, idOrName string) (Resource
 	}
 	for _, r := range extras {
 		if r.Name == idOrName {
-			return r, nil
+			return s.enrich(ctx, r), nil
 		}
 	}
 	return Resource{}, ErrNotFound
