@@ -1,4 +1,4 @@
-# Diagrid Dev Dashboard
+# Diagrid Dapr Dev Dashboard
 
 A local dashboard for Dapr developers that offers a live view of everything Dapr running on
 your machine, plus guided builders for authoring Dapr component and resiliency YAML.
@@ -9,7 +9,7 @@ your machine, plus guided builders for authoring Dapr component and resiliency Y
 
 ## Goal
 
-The Diagrid Dev Dashboard is a companion for local Dapr development. It inspects the
+The Diagrid Dapr Dev Dashboard is a companion for local Dapr development. It inspects the
 apps you start with `dapr run` / `dapr run -f`, Aspire, Docker Compose, or Dapr
 Testcontainers (e.g. Spring Boot apps run with `mvn spring-boot:test-run` and
 `dapr-spring-boot-starter-test`), and surfaces everything about them — sidecars, workflows,
