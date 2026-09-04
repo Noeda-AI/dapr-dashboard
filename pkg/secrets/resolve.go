@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,10 @@ import (
 // cacheTTL bounds how long an initialized store is reused. Combined with the
 // size+mtime fingerprint it keeps a same-second edit from sticking.
 const cacheTTL = 2 * time.Second
+
+// MaxKeyNames caps how many secret names KeyNames returns. The cap is reported
+// to the caller rather than applied silently.
+const MaxKeyNames = 200
 
 // contribLogger is contrib's required logger, silenced: these stores log
 // warnings we surface through Result.Status instead.
@@ -219,7 +224,35 @@ func (s *service) Resolve(ctx context.Context, storeName string, ref Ref) Result
 	return Result{Status: StatusResolved, Value: val, Detail: detail}
 }
 
-// KeyNames is implemented in Task 5; this stub only satisfies the interface.
+// KeyNames returns the store's available secret names (never their values).
+// For local.env a prefix is required: without one, listing would enumerate the
+// caller's entire environment, so it returns nil.
 func (s *service) KeyNames(ctx context.Context, storeName string) ([]string, bool, error) {
-	return nil, false, nil
+	st, ok := s.find(storeName)
+	if !ok {
+		return nil, false, fmt.Errorf("no secret store named %q", storeName)
+	}
+	if !st.Supported() {
+		return nil, false, fmt.Errorf("%s is not a local secret store", st.Type)
+	}
+	if st.Type == TypeEnv && st.Properties["prefix"] == "" {
+		return nil, false, nil
+	}
+	e := s.open(st)
+	if e.store == nil {
+		return nil, false, fmt.Errorf("secret store %q is unreadable: %s", storeName, e.initErr)
+	}
+	resp, err := e.store.BulkGetSecret(ctx, secretstores.BulkGetSecretRequest{})
+	if err != nil {
+		return nil, false, err
+	}
+	names := make([]string, 0, len(resp.Data))
+	for k := range resp.Data {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	if len(names) > MaxKeyNames {
+		return names[:MaxKeyNames], true, nil
+	}
+	return names, false, nil
 }
