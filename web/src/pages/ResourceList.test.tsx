@@ -231,6 +231,41 @@ describe('ResourceList kind=component', () => {
     // and the router pathname must reflect the navigation (now uses id)
     expect(router.state.location.pathname).toBe('/components/pub000pub000')
   })
+
+  it('marks components whose secret references do not resolve', async () => {
+    const PUBSUB = {
+      id: 'pub000pub000',
+      name: 'pubsub',
+      kind: 'component',
+      type: 'pubsub.redis',
+      path: '/tmp/b.yaml',
+    }
+    server.use(
+      http.get('/api/resources', ({ request }) => {
+        const url = new URL(request.url)
+        if (url.searchParams.get('kind') === 'component') {
+          return HttpResponse.json([
+            {
+              id: '1',
+              name: 'statestore',
+              kind: 'component',
+              type: 'state.redis',
+              path: '/tmp/a.yaml',
+              secretRefs: [{ field: 'redisPassword', kind: 'secretKeyRef', status: 'key-not-found' }],
+            },
+            PUBSUB,
+          ])
+        }
+        return HttpResponse.json([])
+      }),
+      http.get('/api/resources/component/:idOrName', () =>
+        HttpResponse.json({ ...PUBSUB, raw: 'kind: Component\n' }),
+      ),
+    )
+    renderComponents()
+    expect(await screen.findByLabelText(/statestore has an unresolved secret/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/pubsub has an unresolved secret/i)).not.toBeInTheDocument()
+  })
 })
 
 // ---- Configurations ----

@@ -4,6 +4,7 @@ import { highlightYaml } from '../lib/yaml-highlight'
 import { copyText } from '../lib/clipboard'
 import { useToast } from '../lib/toast'
 import { SecretRefsPanel } from '../components/SecretRefsPanel'
+import { SecretStorePanel } from '../components/SecretStorePanel'
 import type { ResourceKind } from '../types/resources'
 
 export interface ResourceDetailProps {
@@ -59,6 +60,7 @@ export function ResourceDetail({ kind, idOrName }: ResourceDetailProps) {
 
   return (
     <div>
+      {kind === 'component' && detail.secretStore && <SecretStorePanel info={detail.secretStore} />}
       {kind === 'component' && (detail.secretRefs?.length ?? 0) > 0 && (
         <SecretRefsPanel resourceId={detail.id} refs={detail.secretRefs!} componentType={detail.type} />
       )}
