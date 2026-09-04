@@ -175,6 +175,20 @@ func resolveComponentSecrets(svc secrets.Service, c statestore.Component) (map[s
 func (rc *reconciler) reconcile(apps []discovery.Instance, fp string) {
 	log := slog.Default().With("component", "reconciler")
 	resPaths, scanPaths, loaded, appPaths := derivePaths(apps, rc.homeDir, rc.stateStorePath, rc.extraResPaths)
+
+	// Publish resPaths before detecting/resolving secrets below: rc.secretsSvc
+	// closes over rc.Paths, which reads rc.resPaths. Without this, the
+	// detect/resolve loop below would run against last cycle's paths — nil on
+	// the very first, synchronous boot reconcile — so secret resolution would
+	// find zero stores. Bail out under the closed guard before doing any work.
+	rc.mu.Lock()
+	if rc.closed {
+		rc.mu.Unlock()
+		return
+	}
+	rc.resPaths = resPaths
+	rc.mu.Unlock()
+
 	detected, err := statestore.Detect(scanPaths)
 	if err != nil {
 		log.Warn("state-store detection failed", "err", err)
@@ -210,7 +224,9 @@ func (rc *reconciler) reconcile(apps []discovery.Instance, fp string) {
 		rc.mu.Unlock()
 		return
 	}
-	rc.resPaths, rc.electedReg, rc.fp = resPaths, newReg, fp
+	// resPaths was already published above, before secret resolution ran; only
+	// electedReg/fp are new here.
+	rc.electedReg, rc.fp = newReg, fp
 	rc.mu.Unlock()
 
 	// Pre-warm the elected active store through the pool. The pool retains it;
