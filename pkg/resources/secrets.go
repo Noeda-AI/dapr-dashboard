@@ -147,7 +147,14 @@ func (s *service) secretStoreInfoFor(ctx context.Context, r Resource) *SecretSto
 			break
 		}
 	}
-	if st.Name == "" {
+	// A component can declare any secretstores.* type (DetectStores deliberately
+	// includes unsupported ones so a reference to one reports store-unsupported
+	// rather than store-not-found), but only local.file/local.env are ever
+	// actually read. Without this check a secretstores.hashicorp.vault or
+	// secretstores.azure.keyvault component would get a non-nil SecretStoreInfo
+	// with a misleading "Secrets file: —" / "Keys: No keys found." pane, telling
+	// the user their vault is empty when the truth is it was never read.
+	if st.Name == "" || !st.Supported() {
 		return nil
 	}
 	info := &SecretStoreInfo{

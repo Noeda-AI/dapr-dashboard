@@ -178,6 +178,37 @@ func TestNonSecretStoreHasNoStoreInfo(t *testing.T) {
 	require.Nil(t, got.SecretStore)
 }
 
+const vaultSecretStoreYAML = `apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: vaultsecrets
+spec:
+  type: secretstores.hashicorp.vault
+  version: v1
+  metadata:
+  - name: vaultAddr
+    value: https://vault.internal:8200
+`
+
+// TestUnsupportedSecretStoreTypeHasNoStoreInfo covers finding 3 of the
+// whole-branch review: secretStoreInfoFor used to gate only on
+// secrets.IsSecretStoreType, which matches every secretstores.* type. A
+// genuinely non-local store (hashicorp.vault here, unlike
+// TestNonSecretStoreHasNoStoreInfo above which uses a state store and never
+// exercised this path) must get no SecretStoreInfo at all — the dashboard
+// never reads it, so a populated pane with "Secrets file: —" / "Keys: No
+// keys found." would misleadingly imply the vault was checked and is empty.
+func TestUnsupportedSecretStoreTypeHasNoStoreInfo(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "vault.yaml"), []byte(vaultSecretStoreYAML), 0o600))
+	paths := func() []string { return []string{dir} }
+	svc := New(paths, nil, WithSecrets(secrets.New(paths)))
+
+	got, err := svc.Get(context.Background(), KindComponent, "vaultsecrets")
+	require.NoError(t, err)
+	require.Nil(t, got.SecretStore, "an unsupported secret-store type must yield no SecretStoreInfo")
+}
+
 func TestNilSecretsServiceIsSafe(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "c.yaml"), []byte(refCompYAML), 0o600))
