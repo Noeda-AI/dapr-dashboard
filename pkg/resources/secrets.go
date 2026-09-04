@@ -46,14 +46,34 @@ func (s *service) secretRefsFor(ctx context.Context, doc []byte) []SecretRefStat
 	out := make([]SecretRefStatus, 0, len(refs))
 	for field, ref := range refs {
 		res := s.secrets.Resolve(ctx, storeName, ref)
+		status, detail := res.Status, res.Detail
+		if status == secrets.StatusStoreNotFound {
+			if p, ok := s.containerStorePath(storeName); ok {
+				status = secrets.StatusStoreUnreadable
+				detail = "declared inside container " + p +
+					"; its secrets are not readable from this host"
+			}
+		}
 		out = append(out, SecretRefStatus{
 			Field: field, Kind: ref.Kind, Store: storeName,
 			Name: ref.Name, Key: ref.Key,
-			Status: string(res.Status), Detail: res.Detail,
+			Status: string(status), Detail: detail,
 		})
 	}
 	sortByField(out)
 	return out
+}
+
+// containerStorePath returns the display path of an extras-provided secret
+// store with the given name. Extras carry a "<container>:<in-container-path>"
+// display path, so the host filesystem has no copy of the store's data.
+func (s *service) containerStorePath(storeName string) (string, bool) {
+	for _, r := range s.extraByKind(KindComponent) {
+		if r.Name == storeName && secrets.IsSecretStoreType(r.Type) {
+			return r.Path, true
+		}
+	}
+	return "", false
 }
 
 // secretStoreInfoFor builds the detail-pane payload for a secret-store
