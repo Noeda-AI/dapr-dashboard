@@ -1,4 +1,5 @@
 import { Fragment } from 'react'
+import { Link } from 'react-router-dom'
 import { SecretStatusPill } from './SecretStatusPill'
 import { useSecretReveal } from '../hooks/useSecretReveal'
 import { getCapabilities } from '../lib/capabilities'
@@ -15,10 +16,18 @@ interface Props {
 export function SecretRefsPanel({ resourceId, refs, componentType }: Props) {
   const { values, reveal, hide } = useSecretReveal(resourceId)
   const revealAllowed = getCapabilities().secretReveal !== false
+  const store = refs.find((r) => r.store)?.store
 
   return (
     <div className="panel" style={{ marginBottom: 12 }}>
-      <div className="ph">Secret references</div>
+      <div className="ph">
+        Secret references
+        {store && (
+          <Link className="appref link" to={`/components/${encodeURIComponent(store)}`}>
+            {store}
+          </Link>
+        )}
+      </div>
       <div className="kv">
         {refs.map((r) => {
           const shown = values[r.field]

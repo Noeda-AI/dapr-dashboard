@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SecretRefsPanel } from './SecretRefsPanel'
 import type { SecretRefStatus } from '../types/resources'
@@ -13,6 +14,16 @@ const missing: SecretRefStatus = {
   name: 'absent', status: 'key-not-found', detail: 'secrets file /tmp/secrets.json',
 }
 
+// SecretRefsPanel's header links to the secret store's own component page
+// (<Link>), so every render needs a router context.
+function renderPanel(refs: SecretRefStatus[]) {
+  return render(
+    <MemoryRouter>
+      <SecretRefsPanel resourceId="abc" refs={refs} />
+    </MemoryRouter>,
+  )
+}
+
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ value: 's3cr3t' }), { status: 200 })))
 })
@@ -24,15 +35,19 @@ afterEach(() => {
 
 describe('SecretRefsPanel', () => {
   it('masks resolved values and names the store', () => {
-    render(<SecretRefsPanel resourceId="abc" refs={[resolved]} />)
+    renderPanel([resolved])
     expect(screen.getByText('redisPassword')).toBeInTheDocument()
     expect(screen.getByText('••••••••')).toBeInTheDocument()
-    expect(screen.getByText(/localsecretstore/)).toBeInTheDocument()
+    // The store name appears twice by design: once as the header's link to the
+    // store's own component page, once in the row's "store → key" reference.
+    const link = screen.getByRole('link', { name: 'localsecretstore' })
+    expect(link).toHaveAttribute('href', '/components/localsecretstore')
+    expect(screen.getAllByText(/localsecretstore/).length).toBe(2)
     expect(screen.queryByText('s3cr3t')).not.toBeInTheDocument()
   })
 
   it('shows the failure detail for an unresolved ref', () => {
-    render(<SecretRefsPanel resourceId="abc" refs={[missing]} />)
+    renderPanel([missing])
     expect(screen.getByText('KEY NOT FOUND')).toBeInTheDocument()
     expect(screen.getByText(/secrets file \/tmp\/secrets.json/)).toBeInTheDocument()
   })
@@ -43,7 +58,7 @@ describe('SecretRefsPanel', () => {
     // fake-timer auto-detection, so a bare vi.useFakeTimers() deadlocks waitFor).
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    render(<SecretRefsPanel resourceId="abc" refs={[resolved]} />)
+    renderPanel([resolved])
 
     await user.click(screen.getByRole('button', { name: /reveal redisPassword/i }))
     await waitFor(() => expect(screen.getByText('s3cr3t')).toBeInTheDocument())
@@ -54,7 +69,7 @@ describe('SecretRefsPanel', () => {
   })
 
   it('offers no reveal control for an unresolved ref', () => {
-    render(<SecretRefsPanel resourceId="abc" refs={[missing]} />)
+    renderPanel([missing])
     expect(screen.queryByRole('button', { name: /reveal/i })).not.toBeInTheDocument()
   })
 
@@ -64,7 +79,7 @@ describe('SecretRefsPanel', () => {
     // flag would leak into later tests in this file. Assigning the property directly (and
     // deleting it in afterEach above) gets the same effect without the leak.
     window.__DASH_CAPABILITIES__ = { lifecycle: true, controlPlane: true, logs: true, workflows: true, secretReveal: false }
-    render(<SecretRefsPanel resourceId="abc" refs={[resolved]} />)
+    renderPanel([resolved])
     expect(screen.getByRole('button', { name: /reveal redisPassword/i })).toBeDisabled()
   })
 })
