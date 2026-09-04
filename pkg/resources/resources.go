@@ -42,6 +42,10 @@ const (
 // ErrNotFound is returned by Get when no matching resource exists.
 var ErrNotFound = errors.New("resource not found")
 
+// ErrNoSecretValue is returned by RevealSecret when the field has no secret
+// reference, or the reference does not resolve to a value.
+var ErrNoSecretValue = errors.New("no resolved secret value for field")
+
 // Resource describes a single Dapr component or configuration YAML file.
 type Resource struct {
 	ID       string   `json:"id"`
@@ -76,6 +80,10 @@ type Service interface {
 	// Get resolves idOrName as a resource ID first, then as a metadata name
 	// (first match) so pre-ID deep links keep working.
 	Get(ctx context.Context, kind Kind, idOrName string) (Resource, error)
+	// RevealSecret returns the resolved value of a single secret reference on
+	// a component. It is the only path by which secret material leaves this
+	// package.
+	RevealSecret(ctx context.Context, idOrName, field string) (string, error)
 }
 
 // rawResource is a minimal struct for parsing YAML resource files.

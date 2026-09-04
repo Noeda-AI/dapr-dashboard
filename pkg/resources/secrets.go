@@ -64,6 +64,61 @@ func (s *service) secretRefsFor(ctx context.Context, doc []byte) []SecretRefStat
 	return out
 }
 
+// docFor returns the raw YAML document for the component matching idOrName,
+// using the same precedence as Get: ID first, then name; scanned entries
+// before extras.
+func (s *service) docFor(idOrName string) ([]byte, error) {
+	scanned, err := s.scan(KindComponent)
+	if err != nil {
+		return nil, err
+	}
+	extras := s.extraByKind(KindComponent)
+	for _, r := range scanned {
+		if r.ID == idOrName {
+			return r.doc, nil
+		}
+	}
+	for _, r := range extras {
+		if r.ID == idOrName {
+			return r.doc, nil
+		}
+	}
+	for _, r := range scanned {
+		if r.Name == idOrName {
+			return r.doc, nil
+		}
+	}
+	for _, r := range extras {
+		if r.Name == idOrName {
+			return r.doc, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// RevealSecret returns the resolved value of the secret reference declared on
+// idOrName's field. It is the only method in this package that returns secret
+// material; every other path (SecretRefStatus) stops at status/detail.
+func (s *service) RevealSecret(ctx context.Context, idOrName, field string) (string, error) {
+	if s.secrets == nil {
+		return "", ErrNoSecretValue
+	}
+	doc, err := s.docFor(idOrName)
+	if err != nil {
+		return "", err
+	}
+	storeName, refs := secrets.ParseRefs(doc)
+	ref, ok := refs[field]
+	if !ok {
+		return "", ErrNoSecretValue
+	}
+	res := s.secrets.Resolve(ctx, storeName, ref)
+	if res.Status != secrets.StatusResolved {
+		return "", ErrNoSecretValue
+	}
+	return res.Value, nil
+}
+
 // containerStorePath returns the display path of an extras-provided secret
 // store with the given name. Extras carry a "<container>:<in-container-path>"
 // display path, so the host filesystem has no copy of the store's data.
