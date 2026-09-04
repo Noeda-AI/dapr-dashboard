@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/diagridio/dev-dashboard/pkg/secrets"
 	"sigs.k8s.io/yaml"
 )
 
@@ -82,8 +83,18 @@ type rawResource struct {
 }
 
 type service struct {
-	paths  func() []string
-	extras func() []Resource
+	paths   func() []string
+	extras  func() []Resource
+	secrets secrets.Service
+}
+
+// Option configures the resources Service.
+type Option func(*service)
+
+// WithSecrets attaches a secret resolver so component resources carry secret
+// reference status. Implemented in the next task.
+func WithSecrets(svc secrets.Service) Option {
+	return func(s *service) { s.secrets = svc }
 }
 
 // New returns a Service that scans the paths returned by the provider for
@@ -91,11 +102,15 @@ type service struct {
 // that exist outside the host filesystem, e.g. extracted from containers).
 // Either provider may be nil. Both are called on every List/Get so callers
 // can change sources at runtime.
-func New(paths func() []string, extras func() []Resource) Service {
+func New(paths func() []string, extras func() []Resource, opts ...Option) Service {
 	if paths == nil {
 		paths = func() []string { return nil }
 	}
-	return &service{paths: paths, extras: extras}
+	s := &service{paths: paths, extras: extras}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // kindFromString maps a YAML kind string to a Kind constant.

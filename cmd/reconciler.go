@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/diagridio/dev-dashboard/pkg/discovery"
+	"github.com/diagridio/dev-dashboard/pkg/secrets"
 	"github.com/diagridio/dev-dashboard/pkg/server"
 	"github.com/diagridio/dev-dashboard/pkg/state"
 	"github.com/diagridio/dev-dashboard/pkg/statestore"
@@ -48,6 +49,7 @@ type reconciler struct {
 	pool           *connPool
 	degraded       storeEntry
 	sidecarPool    *workflow.SidecarPool
+	secretsSvc     secrets.Service
 	// composeEnv returns the compose endpoint/mount context (nil = no compose).
 	composeEnv func() discovery.ComposeEnv
 	// extraResPaths are appended to the reconciler's resource scan paths on every
@@ -72,7 +74,7 @@ func newReconciler(ctx context.Context, apps discovery.Service, namespace, homeD
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return &reconciler{
+	rc := &reconciler{
 		baseCtx:        ctx,
 		apps:           apps,
 		namespace:      namespace,
@@ -88,6 +90,10 @@ func newReconciler(ctx context.Context, apps discovery.Service, namespace, homeD
 		degraded:    buildStoreEntry(nil, namespace, client, apps, nil),
 		sidecarPool: workflow.NewSidecarPool(),
 	}
+	// secrets.New closes over rc.Paths (the full resource path set), so it must
+	// be built after rc exists — it cannot live inside the struct literal above.
+	rc.secretsSvc = secrets.New(rc.Paths)
+	return rc
 }
 
 // translate rewrites a compose-project store's connection metadata to
@@ -124,6 +130,42 @@ func identity(c *statestore.Component) string {
 	return c.Name + "|" + c.Type + "|" + statestore.ConnInfo(*c)
 }
 
+// resolveComponentSecrets returns c.Metadata with every secretKeyRef applied,
+// plus a one-sentence diagnostic naming the first unresolved reference (empty
+// when everything resolved). The diagnostic is what the connections panel and
+// the State page show instead of an opaque dial failure.
+func resolveComponentSecrets(svc secrets.Service, c statestore.Component) (map[string]string, string) {
+	out := make(map[string]string, len(c.Metadata)+len(c.SecretRefs))
+	for k, v := range c.Metadata {
+		out[k] = v
+	}
+	if len(c.SecretRefs) == 0 || svc == nil {
+		return out, ""
+	}
+	// Sort field names so the reported issue is deterministic across runs.
+	fields := make([]string, 0, len(c.SecretRefs))
+	for f := range c.SecretRefs {
+		fields = append(fields, f)
+	}
+	sort.Strings(fields)
+
+	var issue string
+	for _, field := range fields {
+		ref := c.SecretRefs[field]
+		res := svc.Resolve(context.Background(), c.SecretStore, secrets.Ref{
+			Kind: "secretKeyRef", Name: ref.Name, Key: ref.Key,
+		})
+		if res.Status == secrets.StatusResolved {
+			out[field] = res.Value
+			continue
+		}
+		if issue == "" {
+			issue = fmt.Sprintf("%s unresolved (%s): %s", field, res.Status, res.Detail)
+		}
+	}
+	return out, issue
+}
+
 // reconcile is NOT safe for concurrent use: callers MUST ensure only one
 // reconcile runs at a time (the reconcilingApps decorator's single-flight guard
 // and the synchronous boot seed are the only callers). It re-derives state from
@@ -137,15 +179,11 @@ func (rc *reconciler) reconcile(apps []discovery.Instance, fp string) {
 	if err != nil {
 		log.Warn("state-store detection failed", "err", err)
 	}
-	secretStores, err := statestore.DetectSecretStores(scanPaths)
-	if err != nil {
-		log.Warn("secret-store detection failed", "err", err)
-	}
 	for i := range detected {
-		resolved, unresolved := statestore.ResolveSecrets(detected[i], secretStores)
+		resolved, issue := resolveComponentSecrets(rc.secretsSvc, detected[i])
 		detected[i].Metadata = resolved
-		if len(unresolved) > 0 {
-			log.Warn("unresolved secretKeyRef metadata", "store", detected[i].Name, "keys", unresolved)
+		if issue != "" {
+			log.Warn("unresolved secret reference", "store", detected[i].Name, "issue", issue)
 		}
 		// Auto-persist every detected store as a path-ref. Persist the YAML path,
 		// not the resolved metadata, so no secrets land in the registry file.
@@ -232,26 +270,21 @@ func (rc *reconciler) activeComponent() *statestore.Component {
 	return rc.electedReg.active()
 }
 
-// autoDetection is a per-call memo of Detect/DetectSecretStores results over a
-// set of auto-entry paths, so Stores() walks the YAML files once per call
-// instead of once per auto entry. It is built, used, and discarded within a
-// single call — no cross-request caching.
+// autoDetection is a per-call memo of Detect results over a set of auto-entry
+// paths, so Stores() walks the YAML files once per call instead of once per
+// auto entry. It is built, used, and discarded within a single call — no
+// cross-request caching.
 type autoDetection struct {
-	components   []statestore.Component
-	secretStores []statestore.SecretStore
+	components []statestore.Component
 }
 
-// detectAuto runs component + secret-store detection over paths once.
+// detectAuto runs component detection over paths once.
 func detectAuto(paths []string, log *slog.Logger) *autoDetection {
 	detected, err := statestore.Detect(paths)
 	if err != nil {
 		log.Warn("state-store detection failed", "paths", paths, "err", err)
 	}
-	secretStores, err := statestore.DetectSecretStores(paths)
-	if err != nil {
-		log.Warn("secret-store detection failed", "paths", paths, "err", err)
-	}
-	return &autoDetection{components: detected, secretStores: secretStores}
+	return &autoDetection{components: detected}
 }
 
 // componentForEntry builds the statestore.Component for a registry entry.
@@ -272,9 +305,9 @@ func (rc *reconciler) componentForEntry(e ConnEntry, det *autoDetection) statest
 		if c.Path != e.Path && !(c.Name == e.Name && underScanPath(c.Path, e.Path)) {
 			continue
 		}
-		resolved, unresolved := statestore.ResolveSecrets(c, det.secretStores)
-		if len(unresolved) > 0 {
-			log.Warn("unresolved secretKeyRef metadata", "store", c.Name, "keys", unresolved)
+		resolved, issue := resolveComponentSecrets(rc.secretsSvc, c)
+		if issue != "" {
+			log.Warn("unresolved secret reference", "store", c.Name, "issue", issue)
 		}
 		c.Metadata = resolved
 		return rc.translate(c)
