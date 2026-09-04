@@ -307,10 +307,12 @@ func detectAuto(paths []string, log *slog.Logger) *autoDetection {
 // Manual entries use their inline metadata; auto entries are matched against
 // det (a detection covering the entry's path — pass nil to detect just this
 // entry's path) and 2a-resolved. A missing/unreadable YAML yields a bare
-// component (connect will error).
-func (rc *reconciler) componentForEntry(e ConnEntry, det *autoDetection) statestore.Component {
+// component (connect will error). The second return is the secret-resolution
+// issue sentence (empty when everything resolved, or the entry is manual, or
+// the YAML was missing) — see resolveComponentSecrets.
+func (rc *reconciler) componentForEntry(e ConnEntry, det *autoDetection) (statestore.Component, string) {
 	if e.Source == SourceManual {
-		return rc.translate(statestore.Component{Name: e.Name, Type: e.Type, Metadata: e.Metadata})
+		return rc.translate(statestore.Component{Name: e.Name, Type: e.Type, Metadata: e.Metadata}), ""
 	}
 	log := slog.Default().With("component", "reconciler")
 	if det == nil {
@@ -326,10 +328,10 @@ func (rc *reconciler) componentForEntry(e ConnEntry, det *autoDetection) statest
 			log.Warn("unresolved secret reference", "store", c.Name, "issue", issue)
 		}
 		c.Metadata = resolved
-		return rc.translate(c)
+		return rc.translate(c), issue
 	}
 	// YAML missing/unreadable: return a bare component (connect will error).
-	return statestore.Component{Name: e.Name, Type: e.Type, Path: e.Path}
+	return statestore.Component{Name: e.Name, Type: e.Type, Path: e.Path}, ""
 }
 
 // underScanPath reports whether compPath (always absolute — Detect abs-olutes
@@ -356,7 +358,8 @@ func (rc *reconciler) componentFor(id string) (statestore.Component, bool) {
 	}
 	for _, e := range rc.registry.List() {
 		if e.ID == id {
-			return rc.componentForEntry(e, nil), true
+			comp, _ := rc.componentForEntry(e, nil)
+			return comp, true
 		}
 	}
 	return statestore.Component{}, false
@@ -400,16 +403,17 @@ func (rc *reconciler) Stores() []server.StoreInfo {
 		if e.Dismissed {
 			continue
 		}
-		comp := rc.componentForEntry(e, det)
+		comp, issue := rc.componentForEntry(e, det)
 		out = append(out, server.StoreInfo{
-			ID:         e.ID,
-			Name:       e.Name,
-			Type:       e.Type,
-			Source:     e.Source,
-			Path:       e.Path,
-			Active:     identity(&comp) == activeID && activeID != "",
-			Connection: statestore.ConnInfo(comp),
-			UpdatedAt:  e.UpdatedAt,
+			ID:          e.ID,
+			Name:        e.Name,
+			Type:        e.Type,
+			Source:      e.Source,
+			Path:        e.Path,
+			Active:      identity(&comp) == activeID && activeID != "",
+			Connection:  statestore.ConnInfo(comp),
+			UpdatedAt:   e.UpdatedAt,
+			SecretIssue: issue,
 		})
 	}
 	sortStores(out)
