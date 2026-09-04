@@ -152,8 +152,12 @@ func resolveComponentSecrets(svc secrets.Service, c statestore.Component) (map[s
 	var issue string
 	for _, field := range fields {
 		ref := c.SecretRefs[field]
+		kind := ref.Kind
+		if kind == "" {
+			kind = "secretKeyRef" // zero value: refs built before envRef support
+		}
 		res := svc.Resolve(context.Background(), c.SecretStore, secrets.Ref{
-			Kind: "secretKeyRef", Name: ref.Name, Key: ref.Key,
+			Kind: kind, Name: ref.Name, Key: ref.Key,
 		})
 		if res.Status == secrets.StatusResolved {
 			out[field] = res.Value

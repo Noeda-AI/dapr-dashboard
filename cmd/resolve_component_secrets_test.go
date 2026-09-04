@@ -68,6 +68,48 @@ func TestResolveComponentSecrets_ResolvedValueApplied(t *testing.T) {
 	require.Empty(t, issue)
 }
 
+// TestResolveComponentSecrets_EnvRefKindPassedThrough covers finding 2: the
+// reconciler used to hardcode Kind: "secretKeyRef" when calling Resolve, so
+// even a correctly-detected envRef would be resolved as a secretKeyRef
+// against the wrong store logic. It must now forward the ref's actual kind.
+func TestResolveComponentSecrets_EnvRefKindPassedThrough(t *testing.T) {
+	svc := fakeSecretsService{resolve: func(_ context.Context, storeName string, ref secrets.Ref) secrets.Result {
+		require.Equal(t, "envRef", ref.Kind)
+		require.Equal(t, "REDIS_PASSWORD", ref.Name)
+		return secrets.Result{Status: secrets.StatusResolved, Value: "s3cr3t"}
+	}}
+	c := statestore.Component{
+		Name:     "s",
+		Metadata: map[string]string{"host": "localhost:6379"},
+		SecretRefs: map[string]statestore.SecretRef{
+			"redisPassword": {Kind: "envRef", Name: "REDIS_PASSWORD"},
+		},
+	}
+	out, issue := resolveComponentSecrets(svc, c)
+	require.Equal(t, "s3cr3t", out["redisPassword"])
+	require.Empty(t, issue)
+}
+
+// TestResolveComponentSecrets_EnvRefUnresolvedProducesIssue verifies that an
+// envRef which fails to resolve (variable unset) surfaces a real SecretIssue
+// naming the field — previously it never reached this path at all because
+// pkg/statestore/detect.go dropped envRef entries silently.
+func TestResolveComponentSecrets_EnvRefUnresolvedProducesIssue(t *testing.T) {
+	svc := fakeSecretsService{resolve: func(_ context.Context, _ string, ref secrets.Ref) secrets.Result {
+		return secrets.Result{Status: secrets.StatusEmptyValue, Detail: "env var " + ref.Name}
+	}}
+	c := statestore.Component{
+		Name: "s",
+		SecretRefs: map[string]statestore.SecretRef{
+			"redisPassword": {Kind: "envRef", Name: "REDIS_PASSWORD"},
+		},
+	}
+	out, issue := resolveComponentSecrets(svc, c)
+	require.Empty(t, out["redisPassword"])
+	require.Contains(t, issue, "redisPassword unresolved")
+	require.Contains(t, issue, "REDIS_PASSWORD")
+}
+
 // Path 3: with multiple unresolved fields, the reported issue always names
 // the same (sorted-first) field, deterministically across repeated calls —
 // map iteration order must never leak into the diagnostic.
