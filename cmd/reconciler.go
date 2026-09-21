@@ -322,9 +322,14 @@ func ptr(c statestore.Component) *statestore.Component { return &c }
 // resolve its YAML; manual: inline metadata) and computes the secrets-free
 // ConnInfo — a file read, never a connect. A missing YAML yields an empty
 // Connection (unreachable), not an error.
+//
+// Aspire container posture disables the connection registry (no home
+// directory). The elected store from the explicit statestore path is still
+// listed, with the same auto-entry id the registry would assign, so the
+// Workflows page can select it.
 func (rc *reconciler) Stores() []server.StoreInfo {
 	if rc.registry == nil {
-		return []server.StoreInfo{}
+		return rc.electedStoreInfos()
 	}
 	var activeID string
 	if active := rc.activeComponent(); active != nil {
@@ -474,9 +479,35 @@ func (rc *reconciler) sidecarEndpoints(includeAll bool) workflow.EndpointsFunc {
 	}
 }
 
+// electedStoreInfos lists the elected active store when the connection
+// registry is disabled. An empty non-nil slice means no store was elected.
+func (rc *reconciler) electedStoreInfos() []server.StoreInfo {
+	rc.mu.RLock()
+	reg := rc.electedReg
+	rc.mu.RUnlock()
+	if reg == nil {
+		return []server.StoreInfo{}
+	}
+	return reg.Stores()
+}
+
+// electedComponentFor resolves an auto-entry id to the elected store. Used
+// when the connection registry is off and the id came from electedStoreInfos.
+func (rc *reconciler) electedComponentFor(id string) (statestore.Component, bool) {
+	active := rc.activeComponent()
+	if active == nil {
+		return statestore.Component{}, false
+	}
+	if id != entryID(SourceAuto, normPath(active.Path)) {
+		return statestore.Component{}, false
+	}
+	return *active, true
+}
+
 // resolveComponent maps a registry entry id to the component to open. degraded
 // reports the no-store case (no active store elected); known is false for an
-// unrecognised id.
+// unrecognised id. An empty id selects the elected store. When the connection
+// registry is disabled, the elected store's auto-entry id selects it too.
 func (rc *reconciler) resolveComponent(id string) (comp statestore.Component, degraded, known bool) {
 	if id == "" {
 		active := rc.activeComponent()
@@ -484,12 +515,16 @@ func (rc *reconciler) resolveComponent(id string) (comp statestore.Component, de
 			return statestore.Component{}, true, true
 		}
 		comp = *active
-	} else {
-		c, ok := rc.componentFor(id)
+	} else if c, ok := rc.componentFor(id); ok {
+		comp = c
+	} else if rc.registry == nil {
+		c, ok := rc.electedComponentFor(id)
 		if !ok {
 			return statestore.Component{}, false, false
 		}
 		comp = c
+	} else {
+		return statestore.Component{}, false, false
 	}
 	// Apply compose address translation (no-op for non-compose stores) so the
 	// pool key matches the pre-warmed translated entry and the dial uses the
@@ -556,6 +591,8 @@ func (rc *reconciler) baseServiceFor(id string) (svc workflow.Service, rem serve
 //     pool cannot open it, the unreachable service (ErrStoreUnreachable).
 //   - id matches a registry entry -> build its component and connect via the
 //     pool; on open failure, the unreachable service.
+//   - id matches the elected store's auto-entry id while the connection
+//     registry is disabled -> that elected store.
 //   - unknown id -> ok=false.
 func (rc *reconciler) ServiceFor(id string) (workflow.Service, server.WorkflowRemover, server.TargetResolver, bool) {
 	baseSvc, rem, storeUp, known := rc.baseServiceFor(id)
