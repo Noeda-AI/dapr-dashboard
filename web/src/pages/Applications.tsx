@@ -27,9 +27,16 @@ const PAGE_HEADER = (
   </div>
 )
 
+function appsSubtitle(apps: AppSummary[] | undefined): string {
+  if (apps?.some((a) => a.source === 'cloudrun')) {
+    return 'Dapr apps on Cloud Run'
+  }
+  return 'Dapr apps & sidecars discovered on this machine'
+}
+
 export function Applications() {
   const navigate = useNavigate()
-  const { data: apps, isLoading } = useApps()
+  const { data: apps, isLoading, isError, error } = useApps()
   const caps = getCapabilities()
   const { toast, toastNode } = useToast()
   const clearInactive = useClearInactive()
@@ -42,6 +49,15 @@ export function Applications() {
       <div className="page">
         {PAGE_HEADER}
         <p className="muted">Loading…</p>
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="page">
+        {PAGE_HEADER}
+        <p className="muted">Error loading applications: {String(error)}</p>
       </div>
     )
   }
@@ -77,7 +93,7 @@ export function Applications() {
       <div className="phead">
         <div>
           <h1>Applications</h1>
-          <div className="sub">Dapr apps &amp; sidecars discovered on this machine</div>
+          <div className="sub">{appsSubtitle(apps)}</div>
         </div>
         {caps.lifecycle && inactive.length > 0 && (
           <button

@@ -200,6 +200,44 @@ func TestList_LogsDiscoveredCount(t *testing.T) {
 	}
 }
 
+func TestEnrichCloudRunKeepsReadyHealth(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+	}))
+	defer srv.Close()
+	created := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	scan := func() ([]ScanResult, error) {
+		return []ScanResult{{
+			AppID:            "companion_backend_staging",
+			Source:           SourceCloudRun,
+			AppContainerName: "noeda-api",
+			SidecarReachable: false,
+			HTTPPort:         3500,
+			AppPort:          8080,
+			Health:           HealthHealthy,
+			AppStatus:        StatusRunning,
+			DaprdStatus:      StatusRunning,
+			AppRuntime:       "python",
+			Created:          created,
+			RunTemplate:      "cloudrun",
+		}}, nil
+	}
+	svc := New(scan, srv.Client())
+	apps, err := svc.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, apps, 1)
+	in := apps[0]
+	require.Zero(t, calls)
+	require.Equal(t, HealthHealthy, in.Health)
+	require.False(t, in.MetadataOK)
+	require.False(t, in.SidecarReachable)
+	require.Equal(t, "noeda-api", in.InstanceKey)
+	require.Equal(t, "python", in.Runtime)
+	require.Equal(t, StatusRunning, in.AppStatus)
+	require.NotEmpty(t, in.Age)
+}
+
 func TestEnrichComposeUnreachableSkipsHTTP(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

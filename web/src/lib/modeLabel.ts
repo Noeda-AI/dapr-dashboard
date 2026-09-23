@@ -15,6 +15,8 @@ export function modeLabel(app: Pick<AppSummary, 'source' | 'isAspire'>): string 
       return 'TestContainers'
     case 'standalone':
       return 'Dapr run'
+    case 'cloudrun':
+      return 'Cloud Run'
     default:
       return '—'
   }

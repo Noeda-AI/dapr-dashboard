@@ -22,6 +22,10 @@ const (
 	// SourceTestcontainers marks daprd sidecars run by Testcontainers
 	// (org.testcontainers=true label), e.g. dapr-spring-boot-starter-test.
 	SourceTestcontainers = "testcontainers"
+	// SourceCloudRun marks daprd sidecars discovered from Cloud Run services.
+	// The sidecar HTTP port is not reachable from another service, so health
+	// comes from the service Ready condition rather than /v1.0/healthz.
+	SourceCloudRun = "cloudrun"
 )
 
 func logger() *slog.Logger { return slog.Default().With("component", "discovery") }
@@ -76,6 +80,10 @@ type ScanResult struct {
 	DaprdStatus    string
 	AppStartedAt   time.Time
 	DaprdStartedAt time.Time
+
+	// Health, when set, is the scanner's own status. Enrichment keeps it when
+	// the sidecar cannot be probed (Cloud Run Ready condition).
+	Health Health
 }
 
 // Key returns the routing identity for this scan result. Compose sidecars can
@@ -94,6 +102,11 @@ func (r ScanResult) Key() string {
 	}
 	if r.Source == SourceTestcontainers && r.DaprdContainerName != "" {
 		return r.DaprdContainerName
+	}
+	// Two Cloud Run services can share one --app-id (noeda-api and noeda-ws).
+	// Key by service name so both rows stay addressable.
+	if r.Source == SourceCloudRun && r.AppContainerName != "" {
+		return r.AppContainerName
 	}
 	return r.AppID
 }
@@ -262,8 +275,18 @@ func (s *service) enrich(ctx context.Context, r ScanResult) Instance {
 			}
 		}
 	}
-	// An unreachable sidecar (compose, HTTP port unpublished) cannot answer
-	// health or metadata — skip both probes instead of burning their timeouts.
+	if in.Source == SourceCloudRun {
+		in.Runtime = r.AppRuntime
+		if in.Runtime == "" || in.Runtime == "unknown" {
+			in.Runtime = InferRuntimeFromImage(r.AppImage)
+		}
+		if r.Health != "" {
+			in.Health = r.Health
+		}
+	}
+	// An unreachable sidecar (compose, HTTP port unpublished; Cloud Run, port
+	// private to the instance) cannot answer health or metadata — skip both
+	// probes instead of burning their timeouts.
 	if !in.SidecarReachable {
 		return in
 	}
