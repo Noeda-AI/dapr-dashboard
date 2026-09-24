@@ -56,7 +56,7 @@ func TestTargetResolver(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("happy path", func(t *testing.T) {
-		disc := fakeDiscovery{inst: discovery.Instance{AppID: "order", HTTPPort: 3500, Health: discovery.HealthHealthy}}
+		disc := fakeDiscovery{inst: discovery.Instance{AppID: "order", HTTPPort: 3500, Health: discovery.HealthHealthy, SidecarReachable: true}}
 		wf := fakeWorkflowSvc{ex: workflow.Execution{ExecutionSummary: workflow.ExecutionSummary{AppID: "order", InstanceID: "inst", Status: workflow.StatusRunning}}}
 		r := newTargetResolver(disc, wf)
 		got, err := r.Resolve(ctx, "order", "inst")
@@ -82,6 +82,19 @@ func TestTargetResolver(t *testing.T) {
 		got, err := r.Resolve(ctx, "order", "inst")
 		require.NoError(t, err)
 		require.Equal(t, "", got.Namespace)
+	})
+
+	t.Run("platform health without a reachable sidecar is not purgeable", func(t *testing.T) {
+		disc := fakeDiscovery{inst: discovery.Instance{
+			AppID: "noeda-workflows", HTTPPort: 3500, Health: discovery.HealthHealthy,
+			SidecarReachable: false, Source: discovery.SourceCloudRun,
+		}}
+		wf := fakeWorkflowSvc{ex: workflow.Execution{ExecutionSummary: workflow.ExecutionSummary{AppID: "noeda-workflows", InstanceID: "inst", Status: workflow.StatusCompleted}}}
+		r := newTargetResolver(disc, wf)
+		got, err := r.Resolve(ctx, "noeda-workflows", "inst")
+		require.NoError(t, err)
+		require.Equal(t, 3500, got.HTTPPort)
+		require.False(t, got.Healthy)
 	})
 
 	t.Run("discovery Get fails — still succeeds with HTTPPort=0 Healthy=false", func(t *testing.T) {

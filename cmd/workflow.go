@@ -160,6 +160,9 @@ func newTargetResolver(apps discovery.Service, wf workflow.Service) *targetResol
 // its DaprHTTPBaseURL, and health from discovery, and its current status from
 // the workflow service. The DaprHTTPBaseURL is carried through so aspire apps
 // (addressed by base URL, not a localhost port) use HTTP terminate/purge.
+// Healthy is true only when the sidecar HTTP endpoint is reachable from this
+// process. A Cloud Run Ready condition is not enough: that port is private to
+// the app instance, so removal force-deletes state keys instead.
 // If discovery fails, the target is returned with HTTPPort=0 and Healthy=false
 // (allowing force-delete). If the workflow lookup fails, the error is returned.
 func (r *targetResolver) Resolve(ctx context.Context, appID, instanceID string) (workflow.RemoveTarget, error) {
@@ -172,7 +175,10 @@ func (r *targetResolver) Resolve(ctx context.Context, appID, instanceID string) 
 	if err == nil {
 		httpPort = inst.HTTPPort
 		daprBase = inst.DaprHTTPBaseURL
-		healthy = inst.Health == discovery.HealthHealthy
+		// Health can be "healthy" from a platform ready check (Cloud Run)
+		// while the sidecar HTTP port stays private to that instance.
+		// Purge must not call 127.0.0.1 in that case; force-delete the store.
+		healthy = inst.SidecarReachable && inst.Health == discovery.HealthHealthy
 		namespace = inst.Namespace // "" for host-scanned apps → global namespace
 	}
 	// If apps.Get failed, continue with httpPort=0, healthy=false (force path only).

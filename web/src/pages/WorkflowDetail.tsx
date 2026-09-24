@@ -475,8 +475,9 @@ export function WorkflowDetail() {
           setRemoveDialogOpen(false)
           navigate('/workflows' + (store ? `?store=${encodeURIComponent(store)}` : ''))
         },
-        onError: () => {
+        onError: (e) => {
           setRemoveDialogOpen(false)
+          toast.show(e instanceof Error ? e.message : 'Remove failed')
         },
       },
     )
