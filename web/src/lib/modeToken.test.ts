@@ -7,6 +7,7 @@ describe('modeToken', () => {
     expect(modeToken({ source: 'compose' })).toBe('compose')
     expect(modeToken({ source: 'testcontainers' })).toBe('test-containers')
     expect(modeToken({ source: 'aspire' })).toBe('aspire')
+    expect(modeToken({ source: 'cloudrun' })).toBe('cloudrun')
   })
 
   it('prefers the Aspire flag over the standalone source', () => {

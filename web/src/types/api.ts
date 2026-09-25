@@ -22,8 +22,8 @@ export interface AppSummary {
   testcontainersSession?: string
   /** per-app Dapr namespace assigned by the Aspire AppHost (Aspire apps only) */
   namespace?: string
-  /** discovery source: process table, docker compose, aspire env contract, or testcontainers */
-  source?: 'standalone' | 'compose' | 'aspire' | 'testcontainers'
+  /** discovery source: process table, docker compose, aspire env contract, testcontainers, or Cloud Run */
+  source?: 'standalone' | 'compose' | 'aspire' | 'testcontainers' | 'cloudrun'
   /** compose project name (source === 'compose' only) */
   composeProject?: string
   /** false when a compose sidecar's HTTP port is not published to the host */

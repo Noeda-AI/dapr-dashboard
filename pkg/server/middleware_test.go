@@ -183,17 +183,22 @@ func TestRequestGuardAllowedHosts(t *testing.T) {
 func TestRequestGuardNormalizedSameOrigin(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	tests := []struct {
-		name   string
-		origin string
-		host   string
-		port   int
-		want   int
+		name           string
+		origin         string
+		host           string
+		port           int
+		forwardedProto string
+		want           int
 	}{
-		{"portless http origin vs explicit port 80 host", "http://dash.local", "dash.local:80", 80, http.StatusOK},
-		{"portless https origin vs portless host, cfg port 443", "https://dash.local", "dash.local", 443, http.StatusOK},
-		{"case-insensitive hostname", "http://DASH.LOCAL", "dash.local:80", 80, http.StatusOK},
-		{"effective port mismatch forbidden", "http://dash.local", "dash.local", 8080, http.StatusForbidden},
-		{"unparsable origin forbidden", "http://[bad", "dash.local", 80, http.StatusForbidden},
+		{"portless http origin vs explicit port 80 host", "http://dash.local", "dash.local:80", 80, "", http.StatusOK},
+		{"portless https origin vs portless host, cfg port 443", "https://dash.local", "dash.local", 443, "", http.StatusOK},
+		{"case-insensitive hostname", "http://DASH.LOCAL", "dash.local:80", 80, "", http.StatusOK},
+		{"effective port mismatch forbidden", "http://dash.local", "dash.local", 8080, "", http.StatusForbidden},
+		{"https origin behind proxy on listen port 8080", "https://dash.local", "dash.local", 8080, "https", http.StatusOK},
+		{"https origin, comma-separated forwarded proto", "https://dash.local", "dash.local", 8080, "https,http", http.StatusOK},
+		{"http origin does not match https forwarded proto", "http://dash.local", "dash.local", 8080, "https", http.StatusForbidden},
+		{"explicit host port ignores forwarded proto", "https://dash.local", "dash.local:8080", 8080, "https", http.StatusForbidden},
+		{"unparsable origin forbidden", "http://[bad", "dash.local", 80, "", http.StatusForbidden},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -201,6 +206,9 @@ func TestRequestGuardNormalizedSameOrigin(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/health", nil)
 			req.Host = tc.host
 			req.Header.Set("Origin", tc.origin)
+			if tc.forwardedProto != "" {
+				req.Header.Set("X-Forwarded-Proto", tc.forwardedProto)
+			}
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 			if rec.Code != tc.want {

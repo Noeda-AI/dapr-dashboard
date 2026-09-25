@@ -81,6 +81,7 @@ export function Workflows() {
   const [dialogInitialForce, setDialogInitialForce] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [removeStatus, setRemoveStatus] = useState<{ ok: number; failed: number } | null>(null)
+  const [removeError, setRemoveError] = useState<string | null>(null)
   const { mutate: removeWorkflows } = useRemoveWorkflows()
 
   // Running apps — used to flag workflow rows whose app-id is not currently running.
@@ -259,12 +260,14 @@ export function Workflows() {
 
   function onBulkPurge() {
     setRemoveStatus(null)
+    setRemoveError(null)
     setDialogInitialForce(false)
     setConfirmDialogOpen(true)
   }
 
   function onBulkForceDelete() {
     setRemoveStatus(null)
+    setRemoveError(null)
     setDialogInitialForce(true)
     setConfirmDialogOpen(true)
   }
@@ -284,8 +287,9 @@ export function Workflows() {
           setSelected(new Set())
           setConfirmDialogOpen(false)
         },
-        onError: () => {
+        onError: (e) => {
           setConfirmDialogOpen(false)
+          setRemoveError(e instanceof Error ? e.message : 'Remove failed')
         },
       },
     )
@@ -389,6 +393,15 @@ export function Workflows() {
       )}
 
       {/* Remove status banner */}
+      {removeError && (
+        <div className="banner danger" data-testid="remove-error-banner">
+          {removeError}{' '}
+          <button className="banner-dismiss" onClick={() => setRemoveError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {removeStatus && (
         <div className={removeStatus.failed > 0 ? 'banner danger' : 'banner ok'}>
           Removed {removeStatus.ok} workflow{removeStatus.ok !== 1 ? 's' : ''}

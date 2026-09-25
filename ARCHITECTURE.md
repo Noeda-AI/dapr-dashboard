@@ -363,6 +363,8 @@ A third scanner, `TestcontainersSource` (`scan_testcontainers.go`), discovers **
 
 Which scanners run is decided by `--mode` (`cmd/sources.go` `sourcesFor`): unset merges all of the above (plus the Aspire env-contract scanner when `DEVDASHBOARD_APP_COUNT` is set); `dapr-run`, `compose`, and `test-containers` run exactly one scanner each. `--mode aspire` without the env contract runs the standalone scan and wraps the **outermost** service (after the lifecycle overlay) in `FilterAspire` (`filter.go`), which keeps only instances flagged `IsAspire` by enrichment — the flag comes from the DCP-proxy heuristic (`appproc.go`), so it cannot be filtered at scan time.
 
+A fourth scanner, `CloudRunSource` (`scan_cloudrun.go`), runs only in Aspire container posture when `DEVDASHBOARD_CLOUDRUN_PROJECT` and `DEVDASHBOARD_CLOUDRUN_REGION` are both set. It lists Cloud Run services in that region and keeps those whose template includes a `daprd` container. App id and ports come from the daprd flags. The instance key is the Cloud Run service name, so two services that share one `--app-id` stay separate rows. The sidecar HTTP port is private to the instance, so results set `SidecarReachable=false` and take health from the service Ready condition. The list is cached for 10s. A Cloud Run list error fails the scan (it is not merged with `Merge`, which would hide it behind an empty Aspire contract).
+
 Derived fields include a human-friendly `Age` and an inferred runtime language.
 **To add a per-app field:** add it to `Instance` (`types.go`), populate it in `enrich`
 (`service.go`) from either the scan result or the parsed metadata, and it serializes

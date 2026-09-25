@@ -143,7 +143,25 @@ func runServe(ctx context.Context, mode Mode, containerPosture bool, settings se
 			return err
 		}
 		appNS = contractNamespaces(scan)
-		appsSvc = discovery.New(scan, client)
+		scanners := []discovery.Scanner{scan}
+		project, region, cloudRunEnabled, err := discovery.CloudRunConfig(os.Getenv)
+		if err != nil {
+			return err
+		}
+		if cloudRunEnabled {
+			scanners = append(scanners, discovery.NewCloudRunSource(project, region, settings.Namespace).Scanner())
+		}
+		appsSvc = discovery.New(func() ([]discovery.ScanResult, error) {
+			var out []discovery.ScanResult
+			for _, sc := range scanners {
+				res, err := sc()
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, res...)
+			}
+			return out, nil
+		}, client)
 		caps = &server.Capabilities{
 			Workflows: settings.StateStore != "",
 			State:     settings.StateStore != "",

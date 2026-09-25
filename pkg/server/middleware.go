@@ -33,8 +33,10 @@ type guardConfig struct {
 // non-empty, the Host header must be a loopback name or one of the allowlist
 // entries (defense against DNS rebinding through a published localhost port).
 // CSRF tightens to normalized same-origin — a present Origin must match the
-// request Host on hostname and effective port. Requests without an Origin
-// (curl, CLI tools) pass in both postures.
+// request Host on hostname and effective port. A portless Host behind a
+// TLS-terminating proxy uses X-Forwarded-Proto (https → 443) instead of the
+// process listen port. Requests without an Origin (curl, CLI tools) pass in
+// both postures.
 func requestGuard(cfg guardConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +58,7 @@ func requestGuard(cfg guardConfig) func(http.Handler) http.Handler {
 				if origin != "" {
 					var crossOrigin bool
 					if cfg.allowAnyHost {
-						crossOrigin = !normalizedSameOrigin(origin, r.Host, cfg.port)
+						crossOrigin = !normalizedSameOrigin(origin, r, cfg.port)
 					} else {
 						crossOrigin = !isLoopbackOrigin(origin)
 					}
@@ -85,9 +87,14 @@ func hostInAllowlist(host string, allowed []string) bool {
 // normalizedSameOrigin reports whether an Origin header shares hostname and
 // effective port with the request Host. Effective ports: the Origin's explicit
 // port, else 443 for https / 80 for http; the request Host's explicit port,
-// else the server's listen port. Hostnames compare case-insensitively. An
-// unparsable or host-less Origin is rejected.
-func normalizedSameOrigin(origin, host string, port int) bool {
+// else the public port (X-Forwarded-Proto or TLS) when the Host header has
+// none, else the server's listen port. Hostnames compare case-insensitively.
+// An unparsable or host-less Origin is rejected.
+//
+// A TLS-terminating proxy (Cloud Run, IAP) presents a portless Host while the
+// process listens on another port. Comparing that listen port to an https
+// Origin (443) would reject every same-origin POST.
+func normalizedSameOrigin(origin string, r *http.Request, listenPort int) bool {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
 		return false
@@ -100,11 +107,36 @@ func normalizedSameOrigin(origin, host string, port int) bool {
 			originPort = "80"
 		}
 	}
-	hostPort := portOf(host)
+	hostPort := portOf(r.Host)
 	if hostPort == "" {
-		hostPort = strconv.Itoa(port)
+		hostPort = publicPort(r, listenPort)
 	}
-	return strings.EqualFold(u.Hostname(), stripPort(host)) && originPort == hostPort
+	return strings.EqualFold(u.Hostname(), stripPort(r.Host)) && originPort == hostPort
+}
+
+// publicPort is the port a browser implies for a portless Host. A proxy sets
+// X-Forwarded-Proto; a direct TLS listener is https. Otherwise the process
+// listen port applies (a browser that used a non-default port puts it on Host).
+func publicPort(r *http.Request, listenPort int) string {
+	switch forwardedProto(r) {
+	case "https":
+		return "443"
+	case "http":
+		return "80"
+	}
+	if r.TLS != nil {
+		return "443"
+	}
+	return strconv.Itoa(listenPort)
+}
+
+// forwardedProto returns the first X-Forwarded-Proto value, lowercased.
+func forwardedProto(r *http.Request) string {
+	p := r.Header.Get("X-Forwarded-Proto")
+	if i := strings.IndexByte(p, ','); i >= 0 {
+		p = p[:i]
+	}
+	return strings.ToLower(strings.TrimSpace(p))
 }
 
 // portOf returns the explicit port of a Host header value, or "" if none.

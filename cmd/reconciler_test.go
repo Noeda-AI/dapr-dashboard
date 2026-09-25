@@ -656,3 +656,38 @@ func TestReconciler_UndismissAppProvidedRunningStore(t *testing.T) {
 	}
 	require.Contains(t, names, "storeb", "the un-dismissed store must reappear in the panel")
 }
+
+func TestReconciler_NilRegistryListsElectedStore(t *testing.T) {
+	dir := t.TempDir()
+	yamlPath := seedAutoComponentYAML(t, dir, "statestore", filepath.Join(dir, "state.db"))
+
+	o := &fakeOpener{}
+	pool := newConnPool("default", &http.Client{}, nil, o.open, nil)
+	rc := newReconciler(context.Background(), nil, "default", "", yamlPath, &http.Client{}, nil, pool, nil, nil)
+	t.Cleanup(func() { _ = rc.Close() })
+
+	require.Empty(t, rc.Stores())
+
+	rc.reconcile(nil, "fp")
+
+	infos := rc.Stores()
+	require.Len(t, infos, 1)
+	require.Equal(t, "statestore", infos[0].Name)
+	require.Equal(t, "state.sqlite", infos[0].Type)
+	require.Equal(t, SourceAuto, infos[0].Source)
+	require.True(t, infos[0].Active)
+	require.NotEmpty(t, infos[0].ID)
+
+	_, _, _, ok := rc.ServiceFor(infos[0].ID)
+	require.True(t, ok, "the listed id must open the elected store")
+
+	_, _, _, ok = rc.ServiceFor("")
+	require.True(t, ok, "an empty id still selects the elected store")
+
+	_, _, _, ok = rc.ServiceFor("not-a-store")
+	require.False(t, ok)
+
+	st, ok := rc.StateFor(infos[0].ID)
+	require.True(t, ok)
+	require.NotNil(t, st)
+}

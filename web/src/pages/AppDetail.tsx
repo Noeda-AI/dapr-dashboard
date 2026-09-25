@@ -233,6 +233,11 @@ function AppDetailContent({ app }: { app: AppDetailType }) {
           sidecar unreachable — publish the daprd HTTP port (e.g. <span className="mono">3500:3500</span>) in
           your compose file to enable health &amp; metadata
         </div>
+      ) : app.source === 'cloudrun' && !app.metadataOk ? (
+        <div className="hint">
+          Cloud Run does not expose the sidecar HTTP port. Health follows the service Ready condition.
+          Open Components for the manifests this sidecar loads.
+        </div>
       ) : (
         !app.metadataOk && <div className="hint">metadata unavailable — showing process-scan data only</div>
       )}

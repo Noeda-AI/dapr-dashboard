@@ -7,6 +7,7 @@ describe('modeLabel', () => {
     expect(modeLabel({ source: 'compose' })).toBe('Compose')
     expect(modeLabel({ source: 'testcontainers' })).toBe('TestContainers')
     expect(modeLabel({ source: 'aspire' })).toBe('Aspire')
+    expect(modeLabel({ source: 'cloudrun' })).toBe('Cloud Run')
   })
   it('prefers the Aspire flag over the standalone source', () => {
     expect(modeLabel({ source: 'standalone', isAspire: true })).toBe('Aspire')
